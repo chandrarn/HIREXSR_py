@@ -1,5 +1,6 @@
 
 # Project Name
+HIREXSR_py: A python port of THACO IDL analysis scripts for the Alcator C-Mod HIREX Doppler spectrometry data.
 
 ## Description
 Python port of the original HIREX analyis script THACO, written in IDL.

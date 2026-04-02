@@ -22,7 +22,8 @@ Usage (CLI)
         --lint-out cmod_ntm_lint_quality.json \\
         --profile-out cmod_ntm_profile_quality.json
 
-The JSON output format mirrors the notebook format used previously:
+The JSON output format stores the shots and line numbers which are "good",
+these line numbers can be used with the profile codes:
 
     {
         "_line_name_comment": "...",
@@ -50,7 +51,6 @@ from hirexsr_lint_profile_py import (
     hirexsr_get_lint_profile_py,
 )
 from hirexsr_get_profile_py import InversionProfileResult, hirexsr_get_profile_py
-
 
 # ---------------------------------------------------------------------------
 # Helpers

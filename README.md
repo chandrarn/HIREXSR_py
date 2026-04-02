@@ -1,9 +1,6 @@
 
-# Project Name
-HIREXSR_py: A python port of THACO IDL analysis scripts for the Alcator C-Mod HIREX Doppler spectrometry data.
-
-## Description
-Python port of the original HIREX analyis script THACO, written in IDL.
+# HIREXSR_py
+A python port of THACO IDL analysis scripts for the Alcator C-Mod HIREX Doppler spectrometry data.
 The original files can be found in: /usr/local/cmod/idl/HIREXSR/
 
 ## Installation
@@ -15,7 +12,6 @@ See the jupyter notebook for run examples on pulling and plotting the line integ
 ## Features
 The code features a number of switches to account for data being missing on some MDS nodes, or nodes potentially being renamed.
 Users may need to manually check a number of lines to find good data
-
 
 ## Configuration
 Project is set up to run within a uv envionrment. If the user does not wish to do this, the only potentially nonstanard package is mdsthin, the python port of the original MDS+ code for data access.

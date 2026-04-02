@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from typing import Sequence
 
 import numpy as np
@@ -56,6 +55,7 @@ from hirexsr_get_profile_py import InversionProfileResult, hirexsr_get_profile_p
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _build_line_name_map(tht: int = 0) -> dict[str, str]:
     """Return {str(line_idx): 'family.name', ...} for all 10 line indices."""
@@ -90,10 +90,12 @@ def _apply_error_threshold(
         valid = valid & (rel <= max_rel)
     return valid
 
+
 def openTree(shotno: int, treeName: str = "CMOD"):
     conn = mds.Connection("alcdata")
     conn.openTree(treeName, shotno)
     return conn
+
 
 # -----------------------------------------------------------------------------
 # Data existance check: line-integrted
@@ -156,12 +158,16 @@ def check_available_lines(
         print("-" * 60)
         for shot, lines in results.items():
             if lines:
-                labels = [f"{l}:{_line_display_name(l, tht)}" for l in lines]
+                labels = [
+                    f"{line_idx}:{_line_display_name(line_idx, tht)}"
+                    for line_idx in lines
+                ]
                 print(f"{shot:>12}  {', '.join(labels)}")
             else:
                 print(f"{shot:>12}  (none)")
 
     return results
+
 
 # ---------------------------------------------------------------------------
 # Data existance check: inverted profile
@@ -171,6 +177,7 @@ def check_available_lines(
 # ---------------------------------------------------------------------------
 # Quality check: line-integrated (LintProfileResult)
 # ---------------------------------------------------------------------------
+
 
 def quality_check_lint(
     out: LintProfileResult,
@@ -208,7 +215,7 @@ def quality_check_lint(
     if out.tau.size == 0 or out.v.size == 0:
         return False
 
-    v = np.asarray(out.v)       # [nt, nch]
+    v = np.asarray(out.v)  # [nt, nch]
     verr = np.asarray(out.verr)
     ti = np.asarray(out.ti)
     tierr = np.asarray(out.tierr)
@@ -222,7 +229,9 @@ def quality_check_lint(
     # Optional Ti error filter reduces the set of "good" channels further
     if max_tierr_abs is not None or max_tierr_rel is not None:
         ti_valid = _is_valid_value(ti)
-        ti_valid = _apply_error_threshold(ti_valid, ti, tierr, max_tierr_abs, max_tierr_rel)
+        ti_valid = _apply_error_threshold(
+            ti_valid, ti, tierr, max_tierr_abs, max_tierr_rel
+        )
         vel_valid = vel_valid & ti_valid
 
     # For each time slice count channels passing all filters
@@ -234,6 +243,7 @@ def quality_check_lint(
 # ---------------------------------------------------------------------------
 # Quality check: inverted profile (InversionProfileResult)
 # ---------------------------------------------------------------------------
+
 
 def quality_check_profile(
     out: InversionProfileResult,
@@ -273,7 +283,7 @@ def quality_check_profile(
     if out.time.size == 0 or out.omg.size == 0:
         return False
 
-    omg = np.asarray(out.omg)       # [npsi, nt]
+    omg = np.asarray(out.omg)  # [npsi, nt]
     omgerr = np.asarray(out.omgerr)
     ti = np.asarray(out.ti)
     tierr = np.asarray(out.tierr)
@@ -282,12 +292,16 @@ def quality_check_profile(
     vel_valid = _is_valid_value(omg)
 
     # Error-bar filters on omega
-    vel_valid = _apply_error_threshold(vel_valid, omg, omgerr, max_verr_abs, max_verr_rel)
+    vel_valid = _apply_error_threshold(
+        vel_valid, omg, omgerr, max_verr_abs, max_verr_rel
+    )
 
     # Optional Ti error filter
     if max_tierr_abs is not None or max_tierr_rel is not None:
         ti_valid = _is_valid_value(ti)
-        ti_valid = _apply_error_threshold(ti_valid, ti, tierr, max_tierr_abs, max_tierr_rel)
+        ti_valid = _apply_error_threshold(
+            ti_valid, ti, tierr, max_tierr_abs, max_tierr_rel
+        )
         vel_valid = vel_valid & ti_valid
 
     # For each time slice (axis-1) count spatial channels passing all filters
@@ -299,6 +313,7 @@ def quality_check_profile(
 # ---------------------------------------------------------------------------
 # Main scanning routines
 # ---------------------------------------------------------------------------
+
 
 def scan_lint_quality(
     shots: Sequence[int],
@@ -344,7 +359,10 @@ def scan_lint_quality(
                 pass
         results[int(shot)] = passing
         if not quiet:
-            labels = [f"{l}:{_line_display_name(l, tht)}" for l in passing]
+            labels = [
+                f"{line_idx}:{_line_display_name(line_idx, tht)}"
+                for line_idx in passing
+            ]
             status = ", ".join(labels) if labels else "(none)"
             print(f"  lint  {int(shot):>12}  {status}")
     return results
@@ -396,7 +414,10 @@ def scan_profile_quality(
                 pass
         results[int(shot)] = passing
         if not quiet:
-            labels = [f"{l}:{_line_display_name(l, tht)}" for l in passing]
+            labels = [
+                f"{line_idx}:{_line_display_name(line_idx, tht)}"
+                for line_idx in passing
+            ]
             status = ", ".join(labels) if labels else "(none)"
             print(f"profile {int(shot):>12}  {status}")
     return results
@@ -417,6 +438,7 @@ def _build_output_dict(results: dict[int, list[int]], tht: int = 0) -> dict:
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -458,20 +480,46 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     # Quality gate parameters
-    p.add_argument("--min-timepoints", type=int, default=5,
-                   help="Minimum good time slices required. Default: 5")
-    p.add_argument("--min-channels", type=int, default=5,
-                   help="Minimum good spatial channels per time slice. Default: 5")
-    p.add_argument("--max-verr-abs", type=float, default=10,
-                   help="Max absolute velocity/omega error (km/s or kHz). Default: no limit")
-    p.add_argument("--max-verr-rel", type=float, default=None,
-                   help="Max relative velocity error |err|/|v|. Default: no limit")
-    p.add_argument("--max-tierr-abs", type=float, default=1,
-                   help="Max absolute Ti error [keV]. Default: no limit")
-    p.add_argument("--max-tierr-rel", type=float, default=None,
-                   help="Max relative Ti error |tierr|/|ti|. Default: no limit")
+    p.add_argument(
+        "--min-timepoints",
+        type=int,
+        default=5,
+        help="Minimum good time slices required. Default: 5",
+    )
+    p.add_argument(
+        "--min-channels",
+        type=int,
+        default=5,
+        help="Minimum good spatial channels per time slice. Default: 5",
+    )
+    p.add_argument(
+        "--max-verr-abs",
+        type=float,
+        default=10,
+        help="Max absolute velocity/omega error (km/s or kHz). Default: no limit",
+    )
+    p.add_argument(
+        "--max-verr-rel",
+        type=float,
+        default=None,
+        help="Max relative velocity error |err|/|v|. Default: no limit",
+    )
+    p.add_argument(
+        "--max-tierr-abs",
+        type=float,
+        default=1,
+        help="Max absolute Ti error [keV]. Default: no limit",
+    )
+    p.add_argument(
+        "--max-tierr-rel",
+        type=float,
+        default=None,
+        help="Max relative Ti error |tierr|/|ti|. Default: no limit",
+    )
 
-    p.add_argument("--quiet", action="store_true", help="Suppress per-shot progress output.")
+    p.add_argument(
+        "--quiet", action="store_true", help="Suppress per-shot progress output."
+    )
     return p.parse_args(argv)
 
 

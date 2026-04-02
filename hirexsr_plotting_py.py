@@ -74,8 +74,12 @@ def _plot_inversion_profile(
         yrot = out.omg[:, it] if doOmega else out.rot[:, it]
         yrot_err = out.omgerr[:, it] if doOmega else out.roterr[:, it]
         axes[0].errorbar(xvals, yrot, yerr=yrot_err, color=color, label=label)
-        axes[1].errorbar(xvals, out.ti[:, it], yerr=out.tierr[:, it], color=color, label=label)
-        axes[2].errorbar(xvals, out.emiss[:, it], yerr=out.emisserr[:, it], color=color, label=label)
+        axes[1].errorbar(
+            xvals, out.ti[:, it], yerr=out.tierr[:, it], color=color, label=label
+        )
+        axes[2].errorbar(
+            xvals, out.emiss[:, it], yerr=out.emisserr[:, it], color=color, label=label
+        )
 
     axes[0].set_xlabel(x_label)
     axes[0].set_ylabel(r"$\omega$ [kHz]" if doOmega else r"$v_\phi$ [km/s]")
@@ -99,10 +103,15 @@ def _plot_inversion_profile(
     axes[2].set_ylim([0, emiss_lim] if emiss_lim is not None else None)
 
     if doSave:
-        fig.savefig(f"{doSave}shot{out.shot}_line{out.lineid}_tht{tht}_{x_axis}.pdf", transparent=True)
-        print(f"Saved plot to {doSave}_shot{out.shot}_line{out.lineid}_tht{tht}_{x_axis}.pdf")
+        fig.savefig(
+            f"{doSave}shot{out.shot}_line{out.lineid}_tht{tht}_{x_axis}.pdf",
+            transparent=True,
+        )
+        print(
+            f"Saved plot to {doSave}_shot{out.shot}_line{out.lineid}_tht{tht}_{x_axis}.pdf"
+        )
 
-    plt.show( block=True)
+    plt.show(block=True)
 
 
 def _curve_mask(
@@ -155,7 +164,9 @@ def _plot_profile_vs_lint(
         if isinstance(specific_timepoint, (int, float)):
             prof_time_idx = [int(np.argmin(np.abs(prof.time - specific_timepoint)))]
         else:
-            prof_time_idx = [int(np.argmin(np.abs(prof.time - t))) for t in specific_timepoint]
+            prof_time_idx = [
+                int(np.argmin(np.abs(prof.time - t))) for t in specific_timepoint
+            ]
 
     # Attempt to get a more descriptive line name for the plot title
     line_name = str(getattr(lint, "line", "?"))
@@ -191,8 +202,20 @@ def _plot_profile_vs_lint(
             x_bounds = None
             x_label = r"$R$ [m]"
 
-        m_prof_w = _curve_mask(x_prof, prof.omg[:, ip], prof.omgerr[:, ip], x_bounds=x_bounds, y_abs_max=omega_abs_max)
-        m_lint_w = _curve_mask(x_lint, lint.v[il, :], lint.verr[il, :], x_bounds=x_bounds, y_abs_max=omega_abs_max)
+        m_prof_w = _curve_mask(
+            x_prof,
+            prof.omg[:, ip],
+            prof.omgerr[:, ip],
+            x_bounds=x_bounds,
+            y_abs_max=omega_abs_max,
+        )
+        m_lint_w = _curve_mask(
+            x_lint,
+            lint.v[il, :],
+            lint.verr[il, :],
+            x_bounds=x_bounds,
+            y_abs_max=omega_abs_max,
+        )
 
         axes[0].errorbar(
             x_prof[m_prof_w],
@@ -217,8 +240,20 @@ def _plot_profile_vs_lint(
             label=f"lint t={t_lint:.3f}",
         )
 
-        m_prof_ti = _curve_mask(x_prof, prof.ti[:, ip], prof.tierr[:, ip], x_bounds=x_bounds, y_abs_max=ti_abs_max)
-        m_lint_ti = _curve_mask(x_lint, lint.ti[il, :], lint.tierr[il, :], x_bounds=x_bounds, y_abs_max=ti_abs_max)
+        m_prof_ti = _curve_mask(
+            x_prof,
+            prof.ti[:, ip],
+            prof.tierr[:, ip],
+            x_bounds=x_bounds,
+            y_abs_max=ti_abs_max,
+        )
+        m_lint_ti = _curve_mask(
+            x_lint,
+            lint.ti[il, :],
+            lint.tierr[il, :],
+            x_bounds=x_bounds,
+            y_abs_max=ti_abs_max,
+        )
         axes[1].errorbar(
             x_prof[m_prof_ti],
             prof.ti[:, ip][m_prof_ti],
@@ -240,8 +275,20 @@ def _plot_profile_vs_lint(
             alpha=0.85,
         )
 
-        m_prof_em = _curve_mask(x_prof, prof.emiss[:, ip], prof.emisserr[:, ip], x_bounds=x_bounds, y_abs_max=emiss_abs_max)
-        m_lint_em = _curve_mask(x_lint, lint.emiss[il, :], lint.emisserr[il, :], x_bounds=x_bounds, y_abs_max=emiss_abs_max)
+        m_prof_em = _curve_mask(
+            x_prof,
+            prof.emiss[:, ip],
+            prof.emisserr[:, ip],
+            x_bounds=x_bounds,
+            y_abs_max=emiss_abs_max,
+        )
+        m_lint_em = _curve_mask(
+            x_lint,
+            lint.emiss[il, :],
+            lint.emisserr[il, :],
+            x_bounds=x_bounds,
+            y_abs_max=emiss_abs_max,
+        )
         axes[2].errorbar(
             x_prof[m_prof_em],
             prof.emiss[:, ip][m_prof_em],
@@ -287,13 +334,13 @@ def _plot_profile_vs_lint(
     if emiss_lims is not None:
         axes[2].set_ylim(emiss_lims)
 
-    
     if doSave:
         out_path = f"{doSave}shot{prof.shot}_line{prof.lineid}_tht{tht}_{x_axis}_profile_vs_lint.pdf"
         fig.savefig(out_path, transparent=True)
         print(f"Saved comparison plot to {out_path}")
 
-    plt.show( block=True)
+    plt.show(block=True)
+
 
 def _plot_lint_profile(
     out: Any,
@@ -355,7 +402,9 @@ def _plot_lint_profile(
         emiss_valid = np.isfinite(emiss[it, :]) & (emiss[it, :] >= 0) & (xvals > 0)
         axes[0].plot(xvals[v_valid], v[it, v_valid], color=color, label=label)
         axes[1].plot(xvals[ti_valid], ti[it, ti_valid], color=color, label=label)
-        axes[2].plot(xvals[emiss_valid], emiss[it, emiss_valid], color=color, label=label)
+        axes[2].plot(
+            xvals[emiss_valid], emiss[it, emiss_valid], color=color, label=label
+        )
 
     if x_axis == "r_proj":
         x_label = "Rproj [m]"
@@ -383,7 +432,7 @@ def _plot_lint_profile(
     axes[1].set_ylim([0, ti_lim])
     axes[2].set_ylim([0, emiss_lim])
     plt.tight_layout()
-   
+
     if doSave:
         fig.savefig(
             f"{doSave}lint_profile_shot{out.shot}_line{out.line}_tht{out.tht}_{x_axis}.pdf",
@@ -393,4 +442,4 @@ def _plot_lint_profile(
             f"Saved plot to {doSave}lint_profile_shot{out.shot}_line{out.line}_tht{out.tht}_{x_axis}.pdf"
         )
 
-    plt.show( block=True)
+    plt.show(block=True)

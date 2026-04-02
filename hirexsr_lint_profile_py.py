@@ -39,6 +39,7 @@ class LintProfileResult:
     - `r_proj`: [nch, nt_valid] (channel-major; output of multi_interpol)
     - `r_ave`: [nch]
     """
+
     shot: int
     line: int
     tht: int
@@ -73,6 +74,7 @@ class TLintResult:
 @dataclass
 class MomentsData:
     """Container for loaded moments data from spectroscopy tree (mirrors IDL hirexsr_load_moments output)."""
+
     mom: np.ndarray
     err: np.ndarray
     pmom: np.ndarray
@@ -128,7 +130,9 @@ def _line_config(line: int, tht: int) -> dict[str, Any]:
         9: {"path": f"{hl}.LYA1:", "z": 20, "lam_o": 3.73114},
     }
     if line not in table:
-        raise ValueError(f"Unsupported line={line}. Supported line indices: {sorted(table)}")
+        raise ValueError(
+            f"Unsupported line={line}. Supported line indices: {sorted(table)}"
+        )
     return table[line]
 
 
@@ -148,7 +152,7 @@ def _atomic_mass_amu(z: int) -> float:
     masses = {
         18: 39.948,  # Ar
         20: 40.078,  # Ca
-        42: 95.95,   # Mo
+        42: 95.95,  # Mo
     }
     if z not in masses:
         raise ValueError(f"No atomic-mass mapping configured for Z={z}")
@@ -160,13 +164,13 @@ def _atomic_mass_amu(z: int) -> float:
 # -----------------------------------------------
 def hirexsr_load_moments_py(shot: int, line: int, tht: int = 0) -> MomentsData:
     """Python rewrite of IDL `hirexsr_load_moments`.
-    
-    Loads moments, errors, profile moments, and auxiliary data from the 
+
+    Loads moments, errors, profile moments, and auxiliary data from the
     spectroscopy MDSplus tree for a given shot, line, and analysis tree.
-    
+
     Mirrors the IDL function behavior exactly, including fallback logic for
     optional nodes (fitcase, tree name, dlam, double).
-    
+
     Parameters
     ----------
     shot : int
@@ -175,12 +179,12 @@ def hirexsr_load_moments_py(shot: int, line: int, tht: int = 0) -> MomentsData:
         Line index (0-9, routed via _line_config)
     tht : int, optional
         Analysis tree suffix (0 for ANALYSIS, >0 for ANALYSIS<tht>)
-        
+
     Returns
     -------
     MomentsData
         Dataclass containing all loaded arrays and metadata
-        
+
     Raises
     ------
     RuntimeError
@@ -188,7 +192,7 @@ def hirexsr_load_moments_py(shot: int, line: int, tht: int = 0) -> MomentsData:
     """
     cfg = _line_config(line, tht)
     path = cfg["path"]
-    
+
     conn = openTree(shot, "spectroscopy")
     try:
         # Load primary data
@@ -196,41 +200,49 @@ def hirexsr_load_moments_py(shot: int, line: int, tht: int = 0) -> MomentsData:
         if mom_raw is None:
             raise RuntimeError(f"Cannot load {path}MOM for shot {shot}, line {line}")
         mom = np.asarray(mom_raw.data())
-        
+
         # Load error array
         err_raw = conn.get(f"{path}ERR")
         err = np.asarray(err_raw.data()) if err_raw is not None else np.zeros_like(mom)
-        
+
         # Load dimension vectors from various expressions
         # IDL: rhotang=mdsvalue('dim_of('+path+'MOM,0)')
         try:
             rhotang_raw = conn.get(f"dim_of({path}MOM,0)")
-            rhotang = np.asarray(rhotang_raw.data()) if rhotang_raw is not None else np.array([])
+            rhotang = (
+                np.asarray(rhotang_raw.data())
+                if rhotang_raw is not None
+                else np.array([])
+            )
         except Exception:
             rhotang = np.array([])
-        
+
         # IDL: pmom=mdsvalue('dim_of('+path+'MOM,2)')
         try:
             pmom_raw = conn.get(f"dim_of({path}MOM,2)")
             pmom = np.asarray(pmom_raw.data()) if pmom_raw is not None else np.array([])
         except Exception:
             pmom = np.array([])
-        
+
         # IDL: bfrac=mdsvalue('dim_of('+path+'MOM,3)')
         try:
             bfrac_raw = conn.get(f"dim_of({path}MOM,3)")
-            bfrac = np.asarray(bfrac_raw.data()) if bfrac_raw is not None else np.array([])
+            bfrac = (
+                np.asarray(bfrac_raw.data()) if bfrac_raw is not None else np.array([])
+            )
         except Exception:
             bfrac = np.array([])
-        
+
         # IDL: fitcase=mdsvalue('dim_of('+path+'MOM,4)',/quiet,status=fitstat)
         #      with fallback if not found
         try:
             fitcase_raw = conn.get(f"dim_of({path}MOM,4)")
-            fitcase = np.asarray(fitcase_raw.data()) if fitcase_raw is not None else None
+            fitcase = (
+                np.asarray(fitcase_raw.data()) if fitcase_raw is not None else None
+            )
         except Exception:
             fitcase = None
-        
+
         if fitcase is None:
             # Fallback: use bfrac shape and set to -1 where bfrac==0
             if bfrac.size > 0:
@@ -238,78 +250,84 @@ def hirexsr_load_moments_py(shot: int, line: int, tht: int = 0) -> MomentsData:
                 fitcase[bfrac == 0] = -1
             else:
                 fitcase = np.array([])
-        
+
         # IDL: perr=mdsvalue('dim_of('+path+'ERR,2)')
         try:
             perr_raw = conn.get(f"dim_of({path}ERR,2)")
             perr = np.asarray(perr_raw.data()) if perr_raw is not None else np.array([])
         except Exception:
             perr = np.array([])
-        
+
         # IDL: scale=mdsvalue('dim_of('+path+'ERR,3)')
         try:
             scale_raw = conn.get(f"dim_of({path}ERR,3)")
-            scale = np.asarray(scale_raw.data()) if scale_raw is not None else np.array([])
+            scale = (
+                np.asarray(scale_raw.data()) if scale_raw is not None else np.array([])
+            )
         except Exception:
             scale = np.array([])
-        
+
         # IDL: tau=mdsvalue('dim_of('+path+'MOM,1)',quiet=quiet)
         try:
             tau_raw = conn.get(f"dim_of({path}MOM,1)")
             tau = np.asarray(tau_raw.data()) if tau_raw is not None else np.array([])
         except Exception:
             tau = np.array([])
-        
+
         # IDL: pos=mdsvalue(path+'POS',quiet=quiet)
         try:
             pos_raw = conn.get(f"{path}POS")
             pos = np.asarray(pos_raw.data()) if pos_raw is not None else np.array([])
         except Exception:
             pos = np.array([])
-        
+
         # IDL: u=mdsvalue(path+'U',quiet=quiet)
         try:
             u_raw = conn.get(f"{path}U")
             u = np.asarray(u_raw.data()) if u_raw is not None else np.array([])
         except Exception:
             u = np.array([])
-        
+
         # IDL: tpos=mdsvalue('dim_of('+path+'POS,0)',quiet=quiet)
         try:
             tpos_raw = conn.get(f"dim_of({path}POS,0)")
             tpos = np.asarray(tpos_raw.data()) if tpos_raw is not None else np.array([])
         except Exception:
             tpos = np.array([])
-        
+
         # IDL: tree=mdsvalue('dim_of('+path+'POS,1)',quiet=quiet,status=treestatus)
         #      IF NOT treestatus THEN tree='analysis'
         try:
             tree_raw = conn.get(f"dim_of({path}POS,1)")
             if tree_raw is not None:
                 tree_val = tree_raw.data()
-                tree = str(tree_val) if tree_val is not None else 'analysis'
+                tree = str(tree_val) if tree_val is not None else "analysis"
             else:
-                tree = 'analysis'
+                tree = "analysis"
         except Exception:
-            tree = 'analysis'
-        
+            tree = "analysis"
+
         # IDL: dlam=mdsvalue(path+'DLAM',quiet=quiet)
         try:
             dlam_raw = conn.get(f"{path}DLAM")
             dlam = np.asarray(dlam_raw.data()) if dlam_raw is not None else np.array([])
         except Exception:
             dlam = np.array([])
-        
+
         # IDL: double=mdsvalue(path+'DOUBLE',quiet=quiet)
         try:
             double_raw = conn.get(f"{path}DOUBLE")
-            double = np.asarray(double_raw.data()) if double_raw is not None else np.array([])
+            double = (
+                np.asarray(double_raw.data())
+                if double_raw is not None
+                else np.array([])
+            )
         except Exception:
             double = np.array([])
-        
+
     finally:
         conn.closeAllTrees()
-    
+
     return MomentsData(
         mom=mom,
         err=err,
@@ -332,7 +350,13 @@ def hirexsr_load_moments_py(shot: int, line: int, tht: int = 0) -> MomentsData:
 # -----------------------------
 # Numeric helpers
 # -----------------------------
-def multi_interpol(rmid: np.ndarray, rpsi: np.ndarray, efit_time: np.ndarray, psinorm: np.ndarray, times: np.ndarray) -> np.ndarray:
+def multi_interpol(
+    rmid: np.ndarray,
+    rpsi: np.ndarray,
+    efit_time: np.ndarray,
+    psinorm: np.ndarray,
+    times: np.ndarray,
+) -> np.ndarray:
     """Python rewrite of IDL `multi_interpol`.
 
     Projects EFIT `rmid(rpsi, t)` values onto `(psinorm, times)` samples.
@@ -465,7 +489,7 @@ def _extract_rhotang(moments_data: MomentsData, nch: int, nt: int) -> np.ndarray
         if rhotang.shape == (nt, nch):
             return rhotang
         if rhotang.shape == (nch, nt):
-            return rhotang.T           # transpose (nch, nt) -> (nt, nch)
+            return rhotang.T  # transpose (nch, nt) -> (nt, nch)
     if rhotang.ndim == 1 and rhotang.size == nch:
         return np.repeat(rhotang[None, :], nt, axis=0)
     return np.full((nt, nch), np.nan, dtype=float)
@@ -473,7 +497,7 @@ def _extract_rhotang(moments_data: MomentsData, nch: int, nt: int) -> np.ndarray
 
 def _mask_pos_sentinels(arr: np.ndarray, sentinel: float = -1.0) -> np.ndarray:
     """Replace sentinel values in POS array with NaN.
-    
+
     MDSplus trees mark invalid/unfilled data with sentinel values (typically -1.0).
     This ensures that geometric factor calculations skip invalid entries.
     """
@@ -598,11 +622,11 @@ def _run_velocity_checks(
     if p.ndim == 2 and p.shape[1] >= 4:
         rcol = p[:, 2]
         tcol = p[:, 3]
-        
+
         # Count sentinel values that will be masked during geom computation
         r_sentinel_count = int(np.sum(rcol == -1.0))
         t_sentinel_count = int(np.sum(tcol == -1.0))
-        
+
         print(
             f"POS[:,2] (R): sentinel_count={r_sentinel_count}, "
             f"range={[np.nanmin(rcol), np.nanmax(rcol)]}"
@@ -611,11 +635,11 @@ def _run_velocity_checks(
             f"POS[:,3] (theta): sentinel_count={t_sentinel_count}, "
             f"range=[{np.nanmin(tcol):.3e}, {np.nanmax(tcol):.3e}]"
         )
-        
+
         # Interpret cos(theta) assuming valid (non-sentinel) values
-        rcol_valid = rcol[rcol != -1.0]
+        # rcol_valid = rcol[rcol != -1.0]
         tcol_valid = tcol[tcol != -1.0]
-        
+
         if tcol_valid.size > 0:
             cos_rad = np.cos(tcol_valid)
             cos_deg = np.cos(np.deg2rad(tcol_valid))
@@ -681,13 +705,13 @@ def hirexsr_get_lint_profile_py(
 
     # Step 1: extract tau from dim_of(MOM,1) — the time axis in seconds.
     # This is IDL's tau (invalid slots are -1).  :U is étendue [m²·sr], not time.
-    tau = _extract_tau(moments)   # shape (nt,);  nt = total time slots
+    tau = _extract_tau(moments)  # shape (nt,);  nt = total time slots
     nt = tau.size
 
     # Step 2: normalize/validate moments as [3, nt, nch].
     mom = _validate_mom_time_axis(_normalize_mom_shape(moments.mom), nt)
     err = _validate_mom_time_axis(_normalize_mom_shape(moments.err), nt)
-    nch = mom.shape[2]   # number of spatial detector channels (e.g. 32)
+    nch = mom.shape[2]  # number of spatial detector channels (e.g. 32)
     pos = moments.pos
 
     # Step 3: rhotang [nt, nch].
@@ -738,15 +762,19 @@ def hirexsr_get_lint_profile_py(
     mass = _atomic_mass_amu(z)
     conv_factor = (lam_o / c) ** 2 * (e * 1.0e3 / (mass * mconv))
 
-    if use_idl_profile_moments: v_nogeom = -1.0 * (lam_o - mom1) * c / lam_o * 1.0e-3
-    else:  v_nogeom =  (mom1/mom0) * c / lam_o * 1.0e-3
+    if use_idl_profile_moments:
+        v_nogeom = -1.0 * (lam_o - mom1) * c / lam_o * 1.0e-3
+    else:
+        v_nogeom = (mom1 / mom0) * c / lam_o * 1.0e-3
     v = v_nogeom * geom
     verr = np.abs(err1) * c / lam_o * np.abs(geom) * 1.0e-3
     emiss = mom0
     emisserr = np.abs(err0)
-    if use_idl_profile_moments: ti = (mom2 ** 2) / conv_factor
-    else:  ti = (mom2 / mom0) / conv_factor
-    tierr = 2.0 * np.abs(err2) * np.sqrt(mom2 ** 2) / conv_factor
+    if use_idl_profile_moments:
+        ti = (mom2**2) / conv_factor
+    else:
+        ti = (mom2 / mom0) / conv_factor
+    tierr = 2.0 * np.abs(err2) * np.sqrt(mom2**2) / conv_factor
 
     # Geometry diagnostics: confirm geometric correction is actually active.
     finite_geom_mask = np.isfinite(geom)
@@ -761,7 +789,9 @@ def hirexsr_get_lint_profile_py(
         geom_max = np.nan
 
     # Diagnostic output the data sizes before filtering to valid times.
-    print(f"Loaded moments data: mom shape={mom.shape}, err shape={err.shape}, pos shape={pos.shape}")
+    print(
+        f"Loaded moments data: mom shape={mom.shape}, err shape={err.shape}, pos shape={pos.shape}"
+    )
     print(f"Extracted tau shape={tau.shape}, rhotang shape={rhotang.shape}")
     print(
         f"Computed emiss shape={emiss.shape}, emisserr shape={emisserr.shape}, "
@@ -843,12 +873,11 @@ def hirexsr_load_tlintptr_py(shot: int, line: int = 2, tht: int = 0) -> TLintRes
     )
 
 
-
-
-
 def _print_summary(out: LintProfileResult) -> None:
     print("=== hirexsr_get_lint_profile_py summary ===")
-    print(f"shot={out.shot}, line={out.line}, tht={out.tht}, Z={out.z}, lam_o={out.lam_o}")
+    print(
+        f"shot={out.shot}, line={out.line}, tht={out.tht}, Z={out.z}, lam_o={out.lam_o}"
+    )
     print(f"tau shape: {out.tau.shape}  [nt_valid]")
     print(f"emiss shape: {out.emiss.shape}  [nt_valid, nch]")
     print(f"v shape: {out.v.shape}  [nt_valid, nch]")
@@ -859,24 +888,32 @@ def _print_summary(out: LintProfileResult) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Python rewrite of hirexsr_get_lint_profile")
-    parser.add_argument("--shot", type=int, default=1120906030)#1120808020)
+    parser = argparse.ArgumentParser(
+        description="Python rewrite of hirexsr_get_lint_profile"
+    )
+    parser.add_argument("--shot", type=int, default=1120906030)  # 1120808020)
     parser.add_argument("--line", type=int, default=7)
     parser.add_argument("--tht", type=int, default=0)
     parser.add_argument(
         "--use-idl-profile-moments",
         action="store_true",
         help="Use pmom/perr (IDL momentptr 11/12/14/15 equivalent) for v/Ti",
-        default=False
+        default=False,
     )
     parser.add_argument(
         "--debug-velocity-checks",
         action="store_true",
         help="Print detailed diagnostics for velocity/geometric-factor behavior",
     )
-    parser.add_argument("--plot", dest="plot", action="store_true", default=True, help="Show plots")
-    parser.add_argument("--no-plot", dest="plot", action="store_false", help="Disable plots")
-    parser.add_argument("--every-nth", type=int, default=2, help="Plot every nth time point")
+    parser.add_argument(
+        "--plot", dest="plot", action="store_true", default=True, help="Show plots"
+    )
+    parser.add_argument(
+        "--no-plot", dest="plot", action="store_false", help="Disable plots"
+    )
+    parser.add_argument(
+        "--every-nth", type=int, default=2, help="Plot every nth time point"
+    )
     parser.add_argument(
         "--x-axis",
         choices=["r_proj", "rhotang"],

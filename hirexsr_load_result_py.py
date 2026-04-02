@@ -82,7 +82,9 @@ def _line_to_label(line: int | str) -> str:
         6: "j",
     }
     if line not in mapping:
-        raise ValueError(f"Unsupported line={line}. Supported integer lines: {sorted(mapping)}")
+        raise ValueError(
+            f"Unsupported line={line}. Supported integer lines: {sorted(mapping)}"
+        )
     return mapping[line]
 
 
@@ -139,10 +141,14 @@ def _ensure_psi_tau(arr: np.ndarray, npsi: int, ntau: int) -> np.ndarray:
         return arr
     if arr.shape == (ntau, npsi):
         return arr.T
-    raise ValueError(f"Array shape {arr.shape} does not match expected (npsi,ntau)=({npsi},{ntau})")
+    raise ValueError(
+        f"Array shape {arr.shape} does not match expected (npsi,ntau)=({npsi},{ntau})"
+    )
 
 
-def _ensure_profile_cube(arr: np.ndarray, nfields: int = 4, nt: int | None = None) -> np.ndarray:
+def _ensure_profile_cube(
+    arr: np.ndarray, nfields: int = 4, nt: int | None = None
+) -> np.ndarray:
     """Normalize profile cube shape to [psi, tau, field].
 
     Accepts [field, psi, tau], [psi, tau, field], or [tau, psi, field].
@@ -167,7 +173,9 @@ def _ensure_profile_cube(arr: np.ndarray, nfields: int = 4, nt: int | None = Non
     return arr
 
 
-def _interp2d_grid(z_xy: np.ndarray, x0: np.ndarray, y0: np.ndarray, x1: np.ndarray, y1: np.ndarray) -> np.ndarray:
+def _interp2d_grid(
+    z_xy: np.ndarray, x0: np.ndarray, y0: np.ndarray, x1: np.ndarray, y1: np.ndarray
+) -> np.ndarray:
     """Bilinear-style interpolation on a rectangular grid.
 
     Mirrors the IDL `/grid` behavior by returning shape [len(x1), len(y1)].
@@ -197,7 +205,9 @@ def _interp2d_grid(z_xy: np.ndarray, x0: np.ndarray, y0: np.ndarray, x1: np.ndar
     return out
 
 
-def _subset_good_times(tau: np.ndarray, tgood: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+def _subset_good_times(
+    tau: np.ndarray, tgood: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray]:
     """Return filtered tau and matching index array."""
     if tgood is None:
         keep = np.arange(tau.size)
@@ -215,7 +225,9 @@ def _subset_good_times(tau: np.ndarray, tgood: np.ndarray | None) -> tuple[np.nd
 # -----------------------------
 # Core loaders
 # -----------------------------
-def _load_efit_mapping(shot: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _load_efit_mapping(
+    shot: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load EFIT arrays used to map psi->r/a and psi->Rmid in time."""
     conn = openTree(shot, "analysis")
     try:
@@ -224,7 +236,9 @@ def _load_efit_mapping(shot: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, n
 
         # Ensure efit_rmidd is shaped [psi, tau] before interpolation.
         if efit_rmidd_raw.ndim != 2:
-            raise ValueError(f"Unexpected EFIT_RMID shape {efit_rmidd_raw.shape}; expected 2D")
+            raise ValueError(
+                f"Unexpected EFIT_RMID shape {efit_rmidd_raw.shape}; expected 2D"
+            )
         if efit_rmidd_raw.shape[1] == efit_tau.size:
             efit_rmidd = efit_rmidd_raw
         elif efit_rmidd_raw.shape[0] == efit_tau.size:
@@ -238,7 +252,9 @@ def _load_efit_mapping(shot: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, n
         efit_psi = np.asarray(conn.get(r"dim_of(\ANALYSIS::EFIT_RMID,1)").data())
         if efit_psi.size != efit_rmidd.shape[0]:
             # Some trees expose psi on dim 0 instead of dim 1.
-            efit_psi_alt = np.asarray(conn.get(r"dim_of(\ANALYSIS::EFIT_RMID,0)").data())
+            efit_psi_alt = np.asarray(
+                conn.get(r"dim_of(\ANALYSIS::EFIT_RMID,0)").data()
+            )
             if efit_psi_alt.size == efit_rmidd.shape[0]:
                 efit_psi = efit_psi_alt
             else:
@@ -350,7 +366,12 @@ def _load_moment(shot: int, line_label: str, tht: int) -> MomentResult:
 
         # In many trees, :U is the moment time-base and contains -1 for invalid slots.
         tau = None
-        for expr in [f"{node_base}:u", f"dim_of({mom_expr},2)", f"dim_of({mom_expr},1)", f"dim_of({mom_expr},0)"]:
+        for expr in [
+            f"{node_base}:u",
+            f"dim_of({mom_expr},2)",
+            f"dim_of({mom_expr},1)",
+            f"dim_of({mom_expr},0)",
+        ]:
             try:
                 cand = np.asarray(conn.get(expr).data()).squeeze()
                 if cand.ndim == 1:
@@ -379,7 +400,9 @@ def _load_moment(shot: int, line_label: str, tht: int) -> MomentResult:
         momerr = np.moveaxis(momerr, -1, 1)
 
     if mom.ndim != 3 or mom.shape[1] != 3:
-        raise ValueError(f"Unexpected moment shape {mom.shape}; expected [nch,3,nt] after normalization")
+        raise ValueError(
+            f"Unexpected moment shape {mom.shape}; expected [nch,3,nt] after normalization"
+        )
     if momerr.ndim != 3 or momerr.shape[1] != 3:
         raise ValueError(
             f"Unexpected moment error shape {momerr.shape}; expected [nch,3,nt] after normalization"
@@ -446,7 +469,9 @@ def _load_lineint(shot: int, line_label: str, tht: int) -> LineIntResult | None:
     if arr.shape[1] < 11 and arr.shape[0] >= 11:
         arr = np.moveaxis(arr, 0, 1)
     if arr.shape[1] < 11:
-        raise ValueError(f"Unexpected mlint shape {arr.shape}; need at least 11 fields on axis 1")
+        raise ValueError(
+            f"Unexpected mlint shape {arr.shape}; need at least 11 fields on axis 1"
+        )
 
     freq = arr[:, 0, :]
     freq_err = arr[:, 1, :]
@@ -527,14 +552,20 @@ def hirexsr_load_result_py(
         Dataclass objects that mirror the original IDL output structure.
     """
     if ti_fit:
-        print("[info] ti_fit requested but external .sav fit loading is not implemented in this Python rewrite.")
+        print(
+            "[info] ti_fit requested but external .sav fit loading is not implemented in this Python rewrite."
+        )
     if omega_fit:
-        print("[info] omega_fit requested but external .sav fit loading is not implemented in this Python rewrite.")
+        print(
+            "[info] omega_fit requested but external .sav fit loading is not implemented in this Python rewrite."
+        )
 
     line_label = _line_to_label(line)
 
     # EFIT mapping arrays from analysis tree.
-    efit_psi, efit_tau, efit_roa, efit_rmidd, efit_rmagx, efit_a = _load_efit_mapping(shot)
+    efit_psi, efit_tau, efit_roa, efit_rmidd, efit_rmagx, efit_a = _load_efit_mapping(
+        shot
+    )
 
     # Spectroscopy profile arrays. If requested line has no data for this shot,
     # try common fallback labels to remain practical across legacy line mappings.
@@ -562,7 +593,7 @@ def hirexsr_load_result_py(
         )
 
     line_label = selected_label
-    pro = _ensure_profile_cube(raw["pro"])        # [psi, tau, field]
+    pro = _ensure_profile_cube(raw["pro"])  # [psi, tau, field]
     proerr = _ensure_profile_cube(raw["proerr"])  # [psi, tau, field]
 
     rho = np.asarray(raw["rho"])
@@ -580,7 +611,9 @@ def hirexsr_load_result_py(
         elif rho.shape[0] == tau.size:
             rho2d = rho.T
         else:
-            raise ValueError(f"Unexpected rho shape {rho.shape} for tau size {tau.size}")
+            raise ValueError(
+                f"Unexpected rho shape {rho.shape} for tau size {tau.size}"
+            )
     else:
         raise ValueError(f"Unexpected rho dimensionality: {rho.shape}")
 
@@ -686,7 +719,9 @@ def _shape_or_none(arr: Any) -> Any:
     return None if arr is None else tuple(np.asarray(arr).shape)
 
 
-def _print_summary(profile: ProfileResult, moment: MomentResult, lineint: LineIntResult | None) -> None:
+def _print_summary(
+    profile: ProfileResult, moment: MomentResult, lineint: LineIntResult | None
+) -> None:
     print("=== hirexsr_load_result_py summary ===")
     print(f"profile.tau shape: {profile.tau.shape}")
     print(f"profile.psinorm shape: {profile.psinorm.shape}")
@@ -706,8 +741,12 @@ def _print_summary(profile: ProfileResult, moment: MomentResult, lineint: LineIn
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Python rewrite of hirexsr_load_result.pro")
-    parser.add_argument("--shot", type=int, default=1140221012, help="C-Mod shot number")
+    parser = argparse.ArgumentParser(
+        description="Python rewrite of hirexsr_load_result.pro"
+    )
+    parser.add_argument(
+        "--shot", type=int, default=1140221012, help="C-Mod shot number"
+    )
     parser.add_argument("--line", default=6, help="Line index or label (default: 6)")
     parser.add_argument("--tht", type=int, default=1, help="THACO analysis index")
     args = parser.parse_args()

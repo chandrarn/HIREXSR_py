@@ -19,7 +19,11 @@ from hirexsr_lint_profile_py import openTree, multi_interpol
 from hirexsr_lint_profile_py import hirexsr_get_lint_profile_py
 from hirexsr_lint_profile_py import _line_config
 from hirexsr_load_result_py import _ensure_profile_cube
-from hirexsr_plotting_py import _plot_inversion_profile, _plot_lint_profile, _plot_profile_vs_lint
+from hirexsr_plotting_py import (
+    _plot_inversion_profile,
+    _plot_lint_profile,
+    _plot_profile_vs_lint,
+)
 
 
 @dataclass
@@ -93,7 +97,16 @@ def _slice_seltime(
     time: np.ndarray,
     psi: np.ndarray,
     seltime: Sequence[float] | None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
     if seltime is None:
         return emiss, emisserr, omg, omgerr, ti, tierr, time, psi
 
@@ -111,7 +124,16 @@ def _slice_seltime(
         raise ValueError("Invalid seltime range: upper bound occurs before lower bound")
 
     sl = slice(ilow, ihigh + 1)
-    return emiss[:, sl], emisserr[:, sl], omg[:, sl], omgerr[:, sl], ti[:, sl], tierr[:, sl], time[sl], psi[:, sl]
+    return (
+        emiss[:, sl],
+        emisserr[:, sl],
+        omg[:, sl],
+        omgerr[:, sl],
+        ti[:, sl],
+        tierr[:, sl],
+        time[sl],
+        psi[:, sl],
+    )
 
 
 def _load_spectroscopy_profile_data(
@@ -250,7 +272,9 @@ def hirexsr_get_profile_py(
     finally:
         conn_a.closeAllTrees()
 
-    r_proj = multi_interpol(rmid=rmid, rpsi=rpsi, efit_time=efit_time, psinorm=subpsinorm, times=subtime)
+    r_proj = multi_interpol(
+        rmid=rmid, rpsi=rpsi, efit_time=efit_time, psinorm=subpsinorm, times=subtime
+    )
 
     # Convert omega -> toroidal velocity using v = 2*pi*R*omega.
     rot = 2.0 * np.pi * r_proj * omg
@@ -263,7 +287,9 @@ def hirexsr_get_profile_py(
     r_ave = np.nansum(r_proj, axis=1) / float(nt)
 
     if not quiet:
-        print(f"Loaded inversion profile: shot={shot}, line={lineid}, nt={nt}, npsi={r_proj.shape[0]}")
+        print(
+            f"Loaded inversion profile: shot={shot}, line={lineid}, nt={nt}, npsi={r_proj.shape[0]}"
+        )
 
     numspatial = subpsinorm.shape[0]
     has_m1 = False
@@ -337,8 +363,12 @@ def _print_summary(out: InversionProfileResult) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Python rewrite of IDL HIREXSR_GET_PROFILE")
-    parser.add_argument("--shot", type=int, default=1120906030, help="Shot number to load")
+    parser = argparse.ArgumentParser(
+        description="Python rewrite of IDL HIREXSR_GET_PROFILE"
+    )
+    parser.add_argument(
+        "--shot", type=int, default=1120906030, help="Shot number to load"
+    )
     parser.add_argument("--tht", type=int, default=0)
     parser.add_argument(
         "--line",
@@ -346,8 +376,12 @@ if __name__ == "__main__":
         default=2,
         help="Line index (lint-style mapping in _line_config; default 2=He-like Z)",
     )
-    parser.add_argument("--dc-shift", type=float, default=0.0, help="Additive shift applied to omega")
-    parser.add_argument("--override", action="store_true", help="Bypass module mismatch safety check")
+    parser.add_argument(
+        "--dc-shift", type=float, default=0.0, help="Additive shift applied to omega"
+    )
+    parser.add_argument(
+        "--override", action="store_true", help="Bypass module mismatch safety check"
+    )
     parser.add_argument(
         "--seltime",
         nargs=2,
@@ -356,16 +390,24 @@ if __name__ == "__main__":
         help="Time window selection in seconds",
     )
     parser.add_argument("--quiet", action="store_true")
-    parser.add_argument("--plot", dest="plot", action="store_true", default=True, help="Show plots")
-    parser.add_argument("--no-plot", dest="plot", action="store_false", help="Disable plots")
-    parser.add_argument("--every-nth", type=int, default=10, help="Plot every nth time point")
+    parser.add_argument(
+        "--plot", dest="plot", action="store_true", default=True, help="Show plots"
+    )
+    parser.add_argument(
+        "--no-plot", dest="plot", action="store_false", help="Disable plots"
+    )
+    parser.add_argument(
+        "--every-nth", type=int, default=10, help="Plot every nth time point"
+    )
     parser.add_argument(
         "--compare-lint",
         action="store_true",
         help="Also run line-integrated loader and generate profile-vs-lint comparison plots",
         default=True,
     )
-    parser.add_argument("--lint-line", type=int, default=7, help="Line index for lint comparison")
+    parser.add_argument(
+        "--lint-line", type=int, default=7, help="Line index for lint comparison"
+    )
     parser.add_argument(
         "--lint-use-idl-profile-moments",
         action="store_true",
@@ -426,4 +468,4 @@ if __name__ == "__main__":
             doSave=args.save_prefix,
         )
 
-    print('Done.')
+    print("Done.")

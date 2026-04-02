@@ -1,0 +1,20 @@
+[project]
+name = "hirexsr-py"
+version = "0.1.0"
+description = "Port of HIREXSR analysis script THACO, originally written in IDL"
+author = "Rian Chandra"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "mdsthin>=1.6.3",
+    "numpy>=2.4.4",
+    "requests>=2.33.1",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.2.0",
+    "notebook>=7.5.5",
+    "pre-commit (>=4.5.1,<5.0.0)",
+]

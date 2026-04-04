@@ -1,7 +1,7 @@
 [project]
 name = "hirexsr-py"
 version = "0.1.0"
-description = "Port of HIREXSR analysis script THACO, originally written in IDL"
+description = "Port of HIREXSR analysis THACO scripts, originally written in IDL"
 author = "Rian Chandra"
 readme = "README.md"
 requires-python = ">=3.12"

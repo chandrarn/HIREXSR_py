@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import sys
 
 try:
     import matplotlib
@@ -111,7 +112,7 @@ def _plot_inversion_profile(
             f"Saved plot to {doSave}_shot{out.shot}_line{out.lineid}_tht{tht}_{x_axis}.pdf"
         )
 
-    plt.show(block=True)
+    plt.show(block=True if "ipykernel" not in sys.modules else False)
 
 
 def _curve_mask(
@@ -152,14 +153,12 @@ def _plot_profile_vs_lint(
         raise ValueError(f"Unsupported x_axis='{x_axis}'. Use 'psi' or 'r_maj'.")
 
     # Check if time arrays are non-empty before proceeding with indexing
+
     if prof.time.size == 0 or lint.tau.size == 0:
         print("No time points available for profile-vs-lint comparison.")
         return
 
     prof_time_idx = list(range(0, prof.time.size, max(1, every_nth)))
-    if not np.any(prof_time_idx):
-        print("No profile time points selected for comparison.")
-        return
     if specific_timepoint is not None:
         if isinstance(specific_timepoint, (int, float)):
             prof_time_idx = [int(np.argmin(np.abs(prof.time - specific_timepoint)))]
@@ -167,6 +166,9 @@ def _plot_profile_vs_lint(
             prof_time_idx = [
                 int(np.argmin(np.abs(prof.time - t))) for t in specific_timepoint
             ]
+    if not np.any(prof_time_idx):
+        print("No profile time points selected for comparison.")
+        return
 
     # Attempt to get a more descriptive line name for the plot title
     line_name = str(getattr(lint, "line", "?"))
@@ -177,10 +179,11 @@ def _plot_profile_vs_lint(
     except Exception:
         pass
 
-    fig, axes = plt.subplots(1, 3, figsize=(17, 5), layout="constrained")
+    fig, axes = plt.subplots(1, 3, figsize=(9, 3), layout="constrained")
     fig.suptitle(
-        f"shot {prof.shot}  line {line_name} profile vs lint comparison  "
-        f"tht {tht}  {f'(every {max(1, every_nth)} profile times)' if not specific_timepoint else f'(specific timepoint(s) {specific_timepoint})'}"
+        f"shot {prof.shot}  line {line_name} profile vs line-integrated comparison  "
+        + f"tht {tht}",
+        fontsize=12,
     )
 
     cmap = plt.get_cmap("tab20", max(len(prof_time_idx), 1))
@@ -195,7 +198,7 @@ def _plot_profile_vs_lint(
             x_prof = prof.psi[:, ip]
             x_lint = lint.rhotang[il, :]
             x_bounds = (0.0, 1.2)
-            x_label = r"$\Psi_N$ / rhotang"
+            x_label = r"$\Psi_N$, $\rho$-tang"
         else:
             x_prof = prof.r_maj[:, ip]
             x_lint = lint.r_proj[:, il]
@@ -226,7 +229,7 @@ def _plot_profile_vs_lint(
             marker="o",
             markersize=3,
             alpha=0.85,
-            label=f"profile t={t_prof:.3f}",
+            label=rf"$v_\phi(r)$ t={t_prof:.3f}",
         )
         axes[0].errorbar(
             x_lint[m_lint_w],
@@ -237,7 +240,7 @@ def _plot_profile_vs_lint(
             marker="x",
             markersize=3,
             alpha=0.85,
-            label=f"lint t={t_lint:.3f}",
+            label=rf"$\int_lv_\phi$ t={t_lint:.3f}",
         )
 
         m_prof_ti = _curve_mask(
@@ -312,15 +315,15 @@ def _plot_profile_vs_lint(
 
     axes[0].set_xlabel(x_label)
     axes[0].set_ylabel(r"$\omega$ [kHz]")
-    axes[0].set_title("Omega: Profile (solid) vs Lint (dashed)")
+    # axes[0].set_title("Omega: Profile (solid) vs Line-Integrated (dashed)")
     axes[0].grid(True)
-    axes[0].legend(fontsize=7, loc="best")
+    axes[0].legend(fontsize=8, loc="best", handlelength=2, ncol=2)
     if v_lims is not None:
         axes[0].set_ylim(v_lims)
 
     axes[1].set_xlabel(x_label)
     axes[1].set_ylabel(r"$T_i$ [keV]")
-    axes[1].set_title("Ti: Profile (solid) vs Lint (dashed)")
+    axes[1].set_title("Profile (solid) vs Line-Integrated (dashed)", fontsize=10)
     axes[1].grid(True)
     axes[1].set_ylim(bottom=0.0)
     if ti_lims is not None:
@@ -328,7 +331,7 @@ def _plot_profile_vs_lint(
 
     axes[2].set_xlabel(x_label)
     axes[2].set_ylabel("Emissivity [a.u.]")
-    axes[2].set_title("Emissivity: Profile (solid) vs Lint (dashed)")
+    # axes[2].set_title("Emissivity: Profile (solid) vs Line-Integrated (dashed)")
     axes[2].grid(True)
     axes[2].set_ylim(bottom=0.0)
     if emiss_lims is not None:
@@ -414,17 +417,17 @@ def _plot_lint_profile(
     axes[0].set_xlabel(x_label)
     axes[0].set_ylabel(r"$\omega$  [kHz]")
     axes[0].set_title("Velocity")
-    axes[0].legend(fontsize=7, loc="best")
+    axes[0].legend(fontsize=8, loc="best")
 
     axes[1].set_xlabel(x_label)
     axes[1].set_ylabel("Ti  [keV]")
     axes[1].set_title("Ion Temperature")
-    axes[1].legend(fontsize=7, loc="best")
+    axes[1].legend(fontsize=8, loc="best")
 
     axes[2].set_xlabel(x_label)
     axes[2].set_ylabel("Emissivity [a.u.]")
     axes[2].set_title("Emissivity")
-    axes[2].legend(fontsize=7, loc="best")
+    axes[2].legend(fontsize=8, loc="best")
 
     for ax in axes:
         ax.grid(True)
@@ -442,4 +445,4 @@ def _plot_lint_profile(
             f"Saved plot to {doSave}lint_profile_shot{out.shot}_line{out.line}_tht{out.tht}_{x_axis}.pdf"
         )
 
-    plt.show(block=True)
+    plt.show(block=True if "ipykernel" not in sys.modules else False)

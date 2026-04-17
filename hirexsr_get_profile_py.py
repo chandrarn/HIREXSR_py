@@ -204,6 +204,7 @@ def hirexsr_get_profile_py(
 
     Returns inverted profile quantities, including mapped major radius and
     toroidal rotation in km/s, with m=1 split handling matching the IDL logic.
+    Return psi is actually psi norm, acording to the original IDL code
     """
     initstring = _analysis_initstring(tht)
     line_node, lineid = _line_from_index(line=line, tht=tht)
@@ -231,7 +232,7 @@ def hirexsr_get_profile_py(
     emisserr = invstrucerr[:, valid, 0]
     ti = invstruc[:, valid, 3]
     tierr = invstrucerr[:, valid, 3]
-    omg = invstruc[:, valid, 1] + float(dc_shift)
+    omg = invstruc[:, valid, 1] + float(dc_shift)  # Rotation frequency is in kHz
     omgerr = invstrucerr[:, valid, 1]
     subtime = time[valid]
 
@@ -277,7 +278,9 @@ def hirexsr_get_profile_py(
     )
 
     # Convert omega -> toroidal velocity using v = 2*pi*R*omega.
-    rot = 2.0 * np.pi * r_proj * omg
+    rot = (
+        2.0 * np.pi * r_proj * omg
+    )  # omg is in kHz, so rot is in km/s if r_proj is in meters.
     with np.errstate(divide="ignore", invalid="ignore"):
         frac = np.where(omg != 0, omgerr / omg, np.nan)
     roterr = rot * frac

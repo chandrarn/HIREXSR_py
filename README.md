@@ -5,6 +5,8 @@ The original files can be found in: /usr/local/cmod/idl/HIREXSR/
 
 ## Installation
 The project is set up to run with uv: use uv sync to drop into the correct environment, and then uv run for the codes of your choice
+You can perminantly install it to the current virtual environment with uv pip install .
+To verify that the code is working properly, type uv run pytest
 
 ## Usage
 See the jupyter notebook for run examples on pulling and plotting the line integrated or inverted data, or checking a list of shots to see if good data exists.

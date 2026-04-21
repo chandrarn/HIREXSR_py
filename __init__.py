@@ -5,6 +5,9 @@ from .hirexsr_get_profile_py import hirexsr_get_profile_py
 from .hirexsr_lint_profile_py import hirexsr_get_lint_profile_py
 from .hirexsr_load_result_py import hirexsr_load_result_py
 from .zeff_neo_python import zeff_neo
+from .get_Te_ne import YAG
+from .n_i_estimation import estimate_n_i
+from .get_Te_ne import openTree, currentShot
 
 __version__ = "0.1.0"
 __author__ = "Rian Chandra"
@@ -15,4 +18,8 @@ __all__ = [
     "quality_check_lint",
     "quality_check_profile",
     "zeff_neo",
+    "YAG",
+    "estimate_n_i",
+    "openTree",
+    "currentShot",
 ]

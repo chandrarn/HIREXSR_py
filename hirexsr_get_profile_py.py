@@ -234,6 +234,7 @@ def hirexsr_get_profile_py(
     tierr = invstrucerr[:, valid, 3]
     omg = invstruc[:, valid, 1] + float(dc_shift)  # Rotation frequency is in kHz
     omgerr = invstrucerr[:, valid, 1]
+
     subtime = time[valid]
 
     if psinorm.ndim == 2:

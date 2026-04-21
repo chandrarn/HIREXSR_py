@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
+import mdsthin as mds
 
 plt.rcParams.update(
     {
@@ -10,12 +11,15 @@ plt.rcParams.update(
     }
 )
 
-try:
-    import MDSplus
-except (
-    ModuleNotFoundError
-):  # pragma: no cover - optional dependency in some environments
-    MDSplus = None
+
+###############################################################################
+def openTree(shotno: int, treeName: str = "CMOD"):
+    # Connect to Alcator C-Mod data server (alcdata) and open specified tree.
+    # When in doubt, use "CMOD" tree and look in jTraverser to find the correct node path
+
+    conn = mds.Connection("alcdata")
+    conn.openTree(treeName, shotno)
+    return conn
 
 
 def _time_first(arr, nt):
@@ -362,45 +366,38 @@ def _build_regular_efit_grids(t, rmid, rout, ip, poh, qpsi, volp):
 
 
 def _get_analysis_data(shot, verbose=False) -> tuple:
-    if MDSplus is None:
-        raise ModuleNotFoundError(
-            "MDSplus is required for zeff_neo Python implementation"
-        )
 
-    tree = MDSplus.Tree("analysis", int(shot))
+    tree = openTree(shot, "analysis")
 
     # Time base from EFIT current trace.
-    pcurr_node = tree.getNode("\\efit_geqdsk:pcurrt").getData()
+    # pcurr_node = tree.get("\\efit_geqdsk:pcurrt")
     try:
         # IDL uses dim_of(...,2) for time in this EFIT signal.
-        t = np.asarray(pcurr_node.dim_of(2).data(), dtype=float)
+        t = tree.get("dim_of(\\efit_geqdsk:pcurrt,2)").data()
     except Exception:
         try:
-            t = np.asarray(pcurr_node.dim_of(1).data(), dtype=float)
+            t = tree.get("dim_of(\\efit_geqdsk:pcurrt,0)").data()
         except Exception:
-            t = np.asarray(pcurr_node.dim_of(0).data(), dtype=float)
+            t = tree.get("dim_of(\\efit_geqdsk:pcurrt,1)").data()
 
     data = {
         "t": t,
-        "rout": np.asarray(tree.getNode("\\efit_aeqdsk:rout").data(), dtype=float)
-        / 100.0,
-        "rmid": np.asarray(tree.getNode("\\EFIT_RMID").data(), dtype=float),
-        "ip": np.abs(
-            np.asarray(tree.getNode("\\efit_aeqdsk:pasmat").data(), dtype=float)
-        ),
-        "ip2": np.asarray(tree.getNode("\\efit_aeqdsk:cpasma").data(), dtype=float),
-        "li": np.asarray(tree.getNode("\\efit_aeqdsk:ali").data(), dtype=float),
-        "wmhd": np.asarray(tree.getNode("\\efit_aeqdsk:wplasm").data(), dtype=float),
-        "psurf": np.asarray(tree.getNode("\\efit_aeqdsk:sibdry").data(), dtype=float)
+        "rout": np.asarray(tree.get("\\efit_aeqdsk:rout").data(), dtype=float) / 100.0,
+        "rmid": np.asarray(tree.get("\\EFIT_RMID").data(), dtype=float),
+        "ip": np.abs(np.asarray(tree.get("\\efit_aeqdsk:pasmat").data(), dtype=float)),
+        "ip2": np.asarray(tree.get("\\efit_aeqdsk:cpasma").data(), dtype=float),
+        "li": np.asarray(tree.get("\\efit_aeqdsk:ali").data(), dtype=float),
+        "wmhd": np.asarray(tree.get("\\efit_aeqdsk:wplasm").data(), dtype=float),
+        "psurf": np.asarray(tree.get("\\efit_aeqdsk:sibdry").data(), dtype=float)
         * 2.0
         * np.pi,
-        "nbbbs": np.asarray(tree.getNode("\\EFIT_GEQDSK:NBBBS").data(), dtype=int),
-        "rbbbs": np.asarray(tree.getNode("\\efit_geqdsk:rbbbs").data(), dtype=float),
-        "zbbbs": np.asarray(tree.getNode("\\efit_geqdsk:zbbbs").data(), dtype=float),
-        "volume": np.asarray(tree.getNode("\\efit_aeqdsk:vout").data(), dtype=float)
+        "nbbbs": np.asarray(tree.get("\\EFIT_GEQDSK:NBBBS").data(), dtype=int),
+        "rbbbs": np.asarray(tree.get("\\efit_geqdsk:rbbbs").data(), dtype=float),
+        "zbbbs": np.asarray(tree.get("\\efit_geqdsk:zbbbs").data(), dtype=float),
+        "volume": np.asarray(tree.get("\\efit_aeqdsk:vout").data(), dtype=float)
         / 1.0e6,
-        "volp": np.asarray(tree.getNode("\\efit_fitout:volp").data(), dtype=float),
-        "qpsi": np.asarray(tree.getNode("\\efit_fitout:qpsi").data(), dtype=float),
+        "volp": np.asarray(tree.get("\\efit_fitout:volp").data(), dtype=float),
+        "qpsi": np.asarray(tree.get("\\efit_fitout:qpsi").data(), dtype=float),
     }
 
     nt = data["t"].size
@@ -452,24 +449,20 @@ def _get_ts_local(shot, efit, verbose=False):
     Port of IDL get_ts_local:
     Build Te/Ne fields on the regular EFIT (tgrid, rgrid) mesh.
     """
-    if MDSplus is None:
-        raise ModuleNotFoundError(
-            "MDSplus is required for zeff_neo Python implementation"
-        )
 
-    tree = MDSplus.Tree("electrons", int(shot))
+    tree = openTree(shot, "electrons")
 
     te_core = np.asarray(
-        tree.getNode("\\yag_new.results.profiles:te_rz").data(), dtype=float
+        tree.get("\\yag_new.results.profiles:te_rz").data(), dtype=float
     )
     ne_core = np.asarray(
-        tree.getNode("\\yag_new.results.profiles:ne_rz").data(), dtype=float
+        tree.get("\\yag_new.results.profiles:ne_rz").data(), dtype=float
     )
     r_core = np.asarray(
-        tree.getNode("yag_new.results.profiles:r_mid_t").data(), dtype=float
+        tree.get("yag_new.results.profiles:r_mid_t").data(), dtype=float
     )
     t_core = np.asarray(
-        tree.getNode("\\yag_new.results.profiles:te_rz").getData().dim_of(0).data(),
+        tree.get("dim_of(\\yag_new.results.profiles:te_rz,0)").data(),
         dtype=float,
     )
 
@@ -486,12 +479,10 @@ def _get_ts_local(shot, efit, verbose=False):
     ne_core = _median_filter_axis1(ne_core, width=3)
 
     try:
-        te_edge = np.asarray(tree.getNode("\\ts_te").data(), dtype=float)
-        ne_edge = np.asarray(tree.getNode("\\ts_ne").data(), dtype=float)
-        r_edge = np.asarray(tree.getNode("\\ts_rmid").data(), dtype=float)
-        t_edge = np.asarray(
-            tree.getNode("\\ts_te").getData().dim_of(0).data(), dtype=float
-        )
+        te_edge = np.asarray(tree.get("\\ts_te").data(), dtype=float)
+        ne_edge = np.asarray(tree.get("\\ts_ne").data(), dtype=float)
+        r_edge = np.asarray(tree.get("\\ts_rmid").data(), dtype=float)
+        t_edge = np.asarray(tree.get("\\ts_te").dim_of(0).data(), dtype=float)
 
         nt_edge = t_edge.size
         te_edge = _time_first(te_edge, nt_edge)

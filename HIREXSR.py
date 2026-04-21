@@ -3,9 +3,16 @@
 #               HIREXSR
 #
 ###########################################################
-# import numpy as np
-# import MDSplus
-from header_Cmod import np, MDSplus
+import numpy as np
+import mdsthin as mds
+
+
+# from header_Cmod import np, MDSplus
+def openTree(shotno, treeName="CMOD"):
+    # Connect to data tree
+    conn = mds.Connection("alcdata")
+    conn.openTree(treeName, shotno)
+    return conn
 
 
 # Prepares necessary line_integrated brightness data
@@ -24,7 +31,7 @@ def prep_pos(
         "J": 3.77179,
     }
     lam0 = lams[line]
-    specTree = MDSplus.Tree("spectroscopy", shot)
+    specTree = openTree("spectroscopy", shot)
     rootPath = r"\SPECTROSCOPY::TOP.HIREXSR.ANALYSIS"
     # Loads THACO branch
     if tht > 0:
@@ -34,27 +41,27 @@ def prep_pos(
     # He-like branch
     if line in ["W", "X", "Z"]:
         # Loads Branch A data
-        branchNode = specTree.getNode(rootPath + "HELIKE")
+        branchNode = specTree.get(rootPath + "HELIKE").data()
 
         # pos vectors for detector modules 1-3 --- never used to look at Ca
-        pos1 = specTree.getNode(
+        pos1 = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod1:pos"
         ).data()  # dim = (spectral pixel, spatial pixel, 4)
-        pos2 = specTree.getNode(
+        pos2 = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod2:pos"
         ).data()  # dim = (spectral pixel, spatial pixel, 4)
-        pos3 = specTree.getNode(
+        pos3 = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod3:pos"
         ).data()  # dim = (spectral pixel, spatial pixel, 4)
 
         # wavelengths for each module
-        lam1 = specTree.getNode(
+        lam1 = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod1:lambda"
         ).data()  # dim = (spectral pixel, spatial pixel)
-        lam2 = specTree.getNode(
+        lam2 = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod2:lambda"
         ).data()  # dim = (spectral pixel, spatial pixel)
-        lam3 = specTree.getNode(
+        lam3 = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod3:lambda"
         ).data()  # dim = (spectral pixel, spatial pixel)
 
@@ -65,21 +72,21 @@ def prep_pos(
 
     elif line in ["LYA1", "MO4D", "J"]:
         # Loads Branch B data
-        branchNode = specTree.getNode(rootPath + "HLIKE")
+        branchNode = specTree.get(rootPath + "HLIKE")
 
         # 1 detector module
-        pos_tot = specTree.getNode(
+        pos_tot = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod4:pos"
         ).data()  # dim = (spectral pixel, spatial pixel, 4)
 
         # wavelength
-        lam_tot = specTree.getNode(
+        lam_tot = specTree.get(
             r"\spectroscopy::top.hirexsr.calib.mod4:lambda"
         ).data()  # dim = (spectral pixel, spatial pixel)
 
     # Loads moment data
-    momNode = branchNode.getNode("MOMENTS.%s.MOM" % (line))
-    errNode = branchNode.getNode("MOMENTS.%s.ERR" % (line))
+    momNode = branchNode.get("MOMENTS.%s.MOM" % (line)).data()
+    errNode = branchNode.get("MOMENTS.%s.ERR" % (line)).data()
 
     # Integrated wavelength range
     try:
@@ -116,7 +123,7 @@ def get_pos_XICS(
     XICS = {}
 
     # Gets MDSplus tree data
-    (branchNode, momNode, errNode, pos_tot, lam_tot, lam0, dlam) = prep_pos(
+    branchNode, momNode, errNode, pos_tot, lam_tot, lam0, dlam = prep_pos(
         line=line, tht=tht, shot=shot
     )
 
@@ -125,7 +132,7 @@ def get_pos_XICS(
     ##############################
 
     # Loads in channel mapping
-    chmap = branchNode.getNode("BINNING.CHMAP").data()[0]  # dim = (spatial pixel)
+    chmap = branchNode.get("BINNING.CHMAP").data()[0]  # dim = (spatial pixel)
     maxChan = np.max(chmap) + 1
 
     # Bounds to integrate over
@@ -315,7 +322,10 @@ def _cmod_tree(
 ):
 
     # Obtains data
-    specTree = MDSplus.Tree("spectroscopy", dout["shot"])
+    specTree = openTree(
+        dout["shot"],
+        "spectroscopy",
+    )
     rootPath = r"\SPECTROSCOPY::TOP.HIREXSR.ANALYSIS"
 
     # Loads THACO branch
@@ -325,7 +335,7 @@ def _cmod_tree(
 
     # Analysis branch
     if branch is not None:
-        branchNode = specTree.getNode(rootPath + branch)
+        branchNode = specTree.get(rootPath + branch)
     else:
         branchNode = None
 

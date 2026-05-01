@@ -358,8 +358,11 @@ def _plot_lint_profile(
     """Plot v, Ti, and emissivity versus chosen radial coordinate."""
     tau = out.tau
     v = out.v
+    verr = out.verr
     ti = out.ti
+    tierr = out.tierr
     emiss = out.emiss
+    emisserr = out.emisserr
     rhotang = out.rhotang
     r_proj = out.r_proj
 
@@ -387,7 +390,7 @@ def _plot_lint_profile(
     except Exception:
         pass
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5), layout="constrained")
+    fig, axes = plt.subplots(1, 3, figsize=(10, 3), layout="constrained")
     fig.suptitle(
         f"shot {out.shot}  line {line_name}  tht {out.tht}  (every {every_nth} time pts)"
     )
@@ -400,13 +403,59 @@ def _plot_lint_profile(
             xvals = r_proj[:, it]
         else:
             xvals = rhotang[it, :]
-        v_valid = np.isfinite(v[it, :]) & (np.abs(v[it, :]) < w_lim) & (xvals > 0)
-        ti_valid = np.isfinite(ti[it, :]) & (ti[it, :] < ti_lim) & (xvals > 0)
-        emiss_valid = np.isfinite(emiss[it, :]) & (emiss[it, :] >= 0) & (xvals > 0)
-        axes[0].plot(xvals[v_valid], v[it, v_valid], color=color, label=label)
-        axes[1].plot(xvals[ti_valid], ti[it, ti_valid], color=color, label=label)
-        axes[2].plot(
-            xvals[emiss_valid], emiss[it, emiss_valid], color=color, label=label
+        v_valid = (
+            np.isfinite(v[it, :])
+            & np.isfinite(verr[it, :])
+            & (np.abs(v[it, :]) < w_lim)
+            & (xvals > 0)
+        )
+        ti_valid = (
+            np.isfinite(ti[it, :])
+            & np.isfinite(tierr[it, :])
+            & (ti[it, :] < ti_lim)
+            & (xvals > 0)
+        )
+        emiss_valid = (
+            np.isfinite(emiss[it, :])
+            & np.isfinite(emisserr[it, :])
+            & (emiss[it, :] >= 0)
+            & (xvals > 0)
+        )
+        axes[0].errorbar(
+            xvals[v_valid],
+            v[it, v_valid],
+            yerr=verr[it, v_valid],
+            color=color,
+            label=label,
+            linestyle="-",
+            marker="o",
+            markersize=2.5,
+            linewidth=1.0,
+            capsize=2,
+        )
+        axes[1].errorbar(
+            xvals[ti_valid],
+            ti[it, ti_valid],
+            yerr=tierr[it, ti_valid],
+            color=color,
+            label=label,
+            linestyle="-",
+            marker="o",
+            markersize=2.5,
+            linewidth=1.0,
+            capsize=2,
+        )
+        axes[2].errorbar(
+            xvals[emiss_valid],
+            emiss[it, emiss_valid],
+            yerr=emisserr[it, emiss_valid],
+            color=color,
+            label=label,
+            linestyle="-",
+            marker="o",
+            markersize=2.5,
+            linewidth=1.0,
+            capsize=2,
         )
 
     if x_axis == "r_proj":
@@ -417,17 +466,17 @@ def _plot_lint_profile(
     axes[0].set_xlabel(x_label)
     axes[0].set_ylabel(r"$\omega$  [kHz]")
     axes[0].set_title("Velocity")
-    axes[0].legend(fontsize=8, loc="best")
+    # axes[0].legend(fontsize=8, loc="best")
 
     axes[1].set_xlabel(x_label)
     axes[1].set_ylabel("Ti  [keV]")
     axes[1].set_title("Ion Temperature")
-    axes[1].legend(fontsize=8, loc="best")
+    # axes[1].legend(fontsize=8, loc="best")
 
     axes[2].set_xlabel(x_label)
     axes[2].set_ylabel("Emissivity [a.u.]")
     axes[2].set_title("Emissivity")
-    axes[2].legend(fontsize=8, loc="best")
+    axes[2].legend(fontsize=8, loc="best", ncol=2)
 
     for ax in axes:
         ax.grid(True)

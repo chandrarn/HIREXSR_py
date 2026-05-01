@@ -423,6 +423,61 @@ def scan_profile_quality(
     return results
 
 
+def scan_vpol_existence(
+    shots: Sequence[int],
+    tht: int = 0,
+    quiet: bool = False,
+) -> dict[int, list[int]]:
+    """Scan shots for lines that have poloidal flow velocity data.
+
+    For each (shot, line_idx) combination, loads the inverted profile and
+    checks whether both ``vpol`` and ``vpolerr`` are not None in the result.
+    Poloidal flow data is uncommon, so this is a standalone existence check
+    rather than a full quality scan.
+
+    Parameters
+    ----------
+    shots : sequence of int
+        Shot numbers to probe.
+    tht : int, optional
+        Analysis tree suffix (0 = ANALYSIS, >0 = ANALYSIS<tht>).
+    quiet : bool, optional
+        If False (default), print a per-shot summary to stdout.
+
+    Returns
+    -------
+    dict mapping int(shot) -> list of line indices for which vpol and vpolerr
+    are both not None.
+    """
+    results: dict[int, list[int]] = {}
+    for shot in shots:
+        has_vpol: list[int] = []
+        for line_idx in range(10):
+            try:
+                out = hirexsr_get_profile_py(
+                    shot=int(shot),
+                    line=line_idx,
+                    quiet=True,
+                    dc_shift=0.0,
+                    tht=tht,
+                    override=False,
+                    seltime=None,
+                )
+                if out.vpol is not None and out.vpolerr is not None:
+                    has_vpol.append(line_idx)
+            except Exception:
+                pass
+        results[int(shot)] = has_vpol
+        if not quiet:
+            labels = [
+                f"{line_idx}:{_line_display_name(line_idx, tht)}"
+                for line_idx in has_vpol
+            ]
+            status = ", ".join(labels) if labels else "(none)"
+            print(f"  vpol  {int(shot):>12}  {status}")
+    return results
+
+
 def _build_output_dict(results: dict[int, list[int]], tht: int = 0) -> dict:
     """Wrap results in the standard JSON output format."""
     line_name_map = _build_line_name_map(tht)
@@ -558,4 +613,10 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    out = scan_vpol_existence(
+        np.arange(1091113001, 1091113036 + 1, dtype=int), tht=0, quiet=False
+    )
+    with open("hirexsr_vpol_existence.json", "w") as f:
+        json.dump(out, f, indent=4, sort_keys=True, ensure_ascii=False)
+    print(f"Saved vpol existence results -> {'hirexsr_vpol_existence.json'}")

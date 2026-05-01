@@ -42,7 +42,9 @@ class InversionProfileResult:
     omgerr: np.ndarray
     rot: np.ndarray
     roterr: np.ndarray
-    has_m1: bool
+    vpol: np.ndarray | None = None
+    vpolerr: np.ndarray | None = None
+    has_m1: bool = False
     emissm1: np.ndarray | None = None
     emisserrm1: np.ndarray | None = None
     tim1: np.ndarray | None = None
@@ -92,6 +94,8 @@ def _slice_seltime(
     emisserr: np.ndarray,
     omg: np.ndarray,
     omgerr: np.ndarray,
+    vpol: np.ndarray,
+    vpolerr: np.ndarray,
     ti: np.ndarray,
     tierr: np.ndarray,
     time: np.ndarray,
@@ -106,9 +110,11 @@ def _slice_seltime(
     np.ndarray,
     np.ndarray,
     np.ndarray,
+    np.ndarray,
+    np.ndarray,
 ]:
     if seltime is None:
-        return emiss, emisserr, omg, omgerr, ti, tierr, time, psi
+        return emiss, emisserr, omg, omgerr, vpol, vpolerr, ti, tierr, time, psi
 
     if len(seltime) != 2:
         raise ValueError("seltime must have exactly two values: [time_low, time_high]")
@@ -129,6 +135,8 @@ def _slice_seltime(
         emisserr[:, sl],
         omg[:, sl],
         omgerr[:, sl],
+        vpol[:, sl],
+        vpolerr[:, sl],
         ti[:, sl],
         tierr[:, sl],
         time[sl],
@@ -230,10 +238,12 @@ def hirexsr_get_profile_py(
     # 0=emissivity, 1=rotation frequency (omega), 2=vpol, 3=Ti.
     emiss = invstruc[:, valid, 0]
     emisserr = invstrucerr[:, valid, 0]
-    ti = invstruc[:, valid, 3]
-    tierr = invstrucerr[:, valid, 3]
     omg = invstruc[:, valid, 1] + float(dc_shift)  # Rotation frequency is in kHz
     omgerr = invstrucerr[:, valid, 1]
+    vpol = invstruc[:, valid, 2]
+    vpolerr = invstrucerr[:, valid, 2]
+    ti = invstruc[:, valid, 3]
+    tierr = invstrucerr[:, valid, 3]
 
     subtime = time[valid]
 
@@ -254,16 +264,20 @@ def hirexsr_get_profile_py(
     else:
         raise ValueError(f"Unexpected psinorm shape {psinorm.shape}")
 
-    emiss, emisserr, omg, omgerr, ti, tierr, subtime, subpsinorm = _slice_seltime(
-        emiss=emiss,
-        emisserr=emisserr,
-        omg=omg,
-        omgerr=omgerr,
-        ti=ti,
-        tierr=tierr,
-        time=subtime,
-        psi=subpsinorm,
-        seltime=seltime,
+    emiss, emisserr, omg, omgerr, vpol, vpolerr, ti, tierr, subtime, subpsinorm = (
+        _slice_seltime(
+            emiss=emiss,
+            emisserr=emisserr,
+            omg=omg,
+            omgerr=omgerr,
+            vpol=vpol,
+            vpolerr=vpolerr,
+            ti=ti,
+            tierr=tierr,
+            time=subtime,
+            psi=subpsinorm,
+            seltime=seltime,
+        )
     )
 
     conn_a = openTree(shot, "analysis")
@@ -324,6 +338,8 @@ def hirexsr_get_profile_py(
             tierr=tierr[base, :],
             omg=omg[base, :],
             omgerr=omgerr[base, :],
+            vpol=vpol[base, :] if not np.all(vpol == 0) else None,
+            vpolerr=vpolerr[base, :] if not np.all(vpolerr == 0) else None,
             rot=rot[base, :],
             roterr=roterr[base, :],
             has_m1=True,
@@ -350,6 +366,8 @@ def hirexsr_get_profile_py(
         tierr=tierr,
         omg=omg,
         omgerr=omgerr,
+        vpol=vpol if not np.all(vpol == 0) else None,
+        vpolerr=vpolerr if not np.all(vpolerr == 0) else None,
         rot=rot,
         roterr=roterr,
         has_m1=False,
@@ -371,7 +389,7 @@ if __name__ == "__main__":
         description="Python rewrite of IDL HIREXSR_GET_PROFILE"
     )
     parser.add_argument(
-        "--shot", type=int, default=1120906030, help="Shot number to load"
+        "--shot", type=int, default=1110316014, help="Shot number to load"
     )
     parser.add_argument("--tht", type=int, default=0)
     parser.add_argument(
@@ -407,7 +425,7 @@ if __name__ == "__main__":
         "--compare-lint",
         action="store_true",
         help="Also run line-integrated loader and generate profile-vs-lint comparison plots",
-        default=True,
+        default=False,
     )
     parser.add_argument(
         "--lint-line", type=int, default=7, help="Line index for lint comparison"

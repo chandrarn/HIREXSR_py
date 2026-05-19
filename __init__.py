@@ -8,6 +8,7 @@ from .zeff_neo_python import zeff_neo
 from .get_Te_ne import YAG
 from .n_i_estimation import estimate_n_i
 from .get_Te_ne import openTree, currentShot
+from . import drifts
 
 __version__ = "0.1.0"
 __author__ = "Rian Chandra"
@@ -22,4 +23,5 @@ __all__ = [
     "estimate_n_i",
     "openTree",
     "currentShot",
+    "drifts",
 ]

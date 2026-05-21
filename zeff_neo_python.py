@@ -809,7 +809,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Python port of zeff_neo IDL routine")
     parser.add_argument(
-        "--shot", type=int, default=1110316020
+        "--shot", type=int, default=1120906030
     )  # 1120815026, help="C-Mod shot number")
     parser.add_argument("--dt", type=float, default=0.1)
     parser.add_argument("--tmin", type=float, default=0.5)

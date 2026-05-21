@@ -10,6 +10,8 @@ from .compute import (
     DiamagneticResult,
     EquilibriumData,
     ProfileData,
+)
+from .impurity_corrections import (
     impurity_main_ion_delta_f_loop_voltage_hz,
     impurity_main_ion_delta_f_ti_gradient_hz,
 )
@@ -131,6 +133,12 @@ def plot_diamagnetic_vs_q_times(
         r_minor_col = np.asarray(equilibrium.r_minor_q_m[:, it_res], dtype=float)
         r_major_col = np.asarray(equilibrium.r_major_q_m[:, it_res], dtype=float)
         b_pol_col = np.asarray(equilibrium.b_pol_q_T[:, it_res], dtype=float)
+        b_phi_col = np.interp(
+            r_major_col,
+            np.asarray(equilibrium.r_major_full_m, dtype=float),
+            np.asarray(equilibrium.b_t_t[:, it_res], dtype=float),
+        )
+        b_sq_avg_col = b_phi_col * b_phi_col + b_pol_col * b_pol_col
         ti_col = np.asarray(result.ti_eV[:, it_res], dtype=float)
         delta_f2_khz = (
             impurity_main_ion_delta_f_ti_gradient_hz(
@@ -138,6 +146,14 @@ def plot_diamagnetic_vs_q_times(
                 r_minor_m=r_minor_col,
                 r_major_m=r_major_col,
                 b_pol_T=b_pol_col,
+                ni_m3=np.asarray(result.ni_m3[:, it_res], dtype=float),
+                b_phi_T=b_phi_col,
+                b_sq_flux_avg_T2=b_sq_avg_col,
+                z_main=1.0,
+                z_imp=16.0,
+                t_imp_eV=ti_col,
+                k2=1.0,
+                use_eq1=True,
             )[order_q]
             / 1e3
         )

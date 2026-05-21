@@ -1078,99 +1078,6 @@ def _safe_log_gradient_sorted(
     return grad_sorted[inv_order]
 
 
-def _velocity_to_toroidal_frequency_hz(
-    v_tor_m_s: np.ndarray, r_major_m: np.ndarray
-) -> np.ndarray:
-    """Convert toroidal velocity [m/s] to toroidal rotation frequency [Hz]."""
-    r_safe = np.maximum(np.asarray(r_major_m, dtype=float), 1e-6)
-    return np.asarray(v_tor_m_s, dtype=float) / (TWO_PI * r_safe)
-
-
-def impurity_main_ion_delta_v_loop_voltage(
-    ti_eV: np.ndarray,
-    ni_m3: np.ndarray,
-    r_major_m: np.ndarray,
-    loop_voltage_V: float,
-    z_imp: float,
-    mu_imp_amu: float,
-    dilution_factor: float = 1.0,
-) -> np.ndarray:
-    """Model 1: impurity-main ion toroidal velocity difference from loop voltage.
-
-    Uses
-      v_I - v_i = -4.19e3 * f * (Z_i/sqrt(mu)) * (V_l/R) * (T_i^(3/2)/n_20)
-    with Ti in keV and n_20 = n_i / 1e20 m^-3.
-    """
-    ti_keV = np.maximum(np.asarray(ti_eV, dtype=float) * 1e-3, 0.0)
-    n20 = np.maximum(np.asarray(ni_m3, dtype=float) * 1e-20, 1e-8)
-    r_major_safe = np.maximum(np.asarray(r_major_m, dtype=float), 1e-6)
-
-    mu_safe = max(float(mu_imp_amu), 1e-8)
-    coeff = -4.19e3 * float(dilution_factor) * (float(z_imp) / np.sqrt(mu_safe))
-    return coeff * (float(loop_voltage_V) / r_major_safe) * ((ti_keV**1.5) / n20)
-
-
-def impurity_main_ion_delta_f_loop_voltage_hz(
-    ti_eV: np.ndarray,
-    ni_m3: np.ndarray,
-    r_major_m: np.ndarray,
-    loop_voltage_V: float,
-    z_imp: float,
-    mu_imp_amu: float,
-    dilution_factor: float = 1.0,
-) -> np.ndarray:
-    """Model 1 correction converted to toroidal rotation frequency [Hz]."""
-    delta_v = impurity_main_ion_delta_v_loop_voltage(
-        ti_eV=ti_eV,
-        ni_m3=ni_m3,
-        r_major_m=r_major_m,
-        loop_voltage_V=loop_voltage_V,
-        z_imp=z_imp,
-        mu_imp_amu=mu_imp_amu,
-        dilution_factor=dilution_factor,
-    )
-    return _velocity_to_toroidal_frequency_hz(delta_v, r_major_m)
-
-
-def impurity_main_ion_delta_v_ti_gradient(
-    ti_eV: np.ndarray,
-    r_minor_m: np.ndarray,
-    r_major_m: np.ndarray,
-    b_pol_T: np.ndarray,
-) -> np.ndarray:
-    """Model 2: impurity-main ion toroidal velocity difference from Ti gradient.
-
-    Uses
-      v_I - v_i = (3/2)*(3/2)*sqrt(r/R) * (1/(e*B_theta)) * dT_i/dr
-    with Ti converted from eV to Joules before differentiation.
-    """
-    ti = np.asarray(ti_eV, dtype=float)
-    r_minor = np.maximum(np.asarray(r_minor_m, dtype=float), 1e-6)
-    r_major = np.maximum(np.asarray(r_major_m, dtype=float), 1e-6)
-    b_pol = np.asarray(b_pol_T, dtype=float)
-
-    dti_dr_j_m = np.gradient(ti * E_CHARGE, r_minor, edge_order=2)
-    prefactor = 2.25 * np.sqrt(np.clip(r_minor / r_major, 0.0, None))
-    denom = E_CHARGE * np.where(np.abs(b_pol) > 1e-8, b_pol, np.nan)
-    return prefactor * (dti_dr_j_m / denom)
-
-
-def impurity_main_ion_delta_f_ti_gradient_hz(
-    ti_eV: np.ndarray,
-    r_minor_m: np.ndarray,
-    r_major_m: np.ndarray,
-    b_pol_T: np.ndarray,
-) -> np.ndarray:
-    """Model 2 correction converted to toroidal rotation frequency [Hz]."""
-    delta_v = impurity_main_ion_delta_v_ti_gradient(
-        ti_eV=ti_eV,
-        r_minor_m=r_minor_m,
-        r_major_m=r_major_m,
-        b_pol_T=b_pol_T,
-    )
-    return _velocity_to_toroidal_frequency_hz(delta_v, r_major_m)
-
-
 def _plot_compute_grid_diagnostics(
     time_s: np.ndarray,
     selected_times_s: list[float],
@@ -1560,7 +1467,6 @@ def compute_diamagnetic_drift_frequencies(
     ne_q_raw = ne_q
     te_q_eV_raw = te_q_eV
     ti_q_eV_raw = ti_q_eV
-    ne_q_raw / np.maximum(zeff_t[np.newaxis, :], 1e-8)
 
     if smooth_profiles_before_pressure:
         ne_q = _smooth_profiles_for_gradients_axis0(

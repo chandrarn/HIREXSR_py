@@ -601,6 +601,7 @@ def zeff_neo(
     plot=False,
     verbose=False,
     strict_diagnostics=False,
+    return_vres=False,
     save_plots="",
 ):
     """
@@ -739,6 +740,13 @@ def zeff_neo(
 
     n_out = int(np.floor((trange[1] - trange[0]) / dt))
     if n_out <= 0:
+        if return_vres:
+            return (
+                np.array([], dtype=float),
+                np.array([], dtype=float),
+                np.asarray(vres, dtype=float),
+                np.asarray(tgrid, dtype=float),
+            )
         return np.array([], dtype=float), np.array([], dtype=float)
 
     times = np.zeros(n_out, dtype=float)
@@ -775,6 +783,8 @@ def zeff_neo(
         diagnostics = {
             "times": times,
             "zeff": zeff,
+            "vres": vres,
+            "tgrid": tgrid,
             "ip_ma": ip_ma,
             "ip_neo_ma": ip_neo_ma,
             "zeff_grid": zeff_grid,
@@ -788,6 +798,7 @@ def zeff_neo(
         }
         diagnostics["diag_summary"] = _summarize_diag_bins(diag_bins)
         diagnostics["field_summary"] = {
+            "vres": _array_stats(vres),
             "qpsi_i": _array_stats(qpsi_i),
             "volp_i": _array_stats(volp_i),
             "dv": _array_stats(dv),
@@ -796,11 +807,26 @@ def zeff_neo(
             "ip_ma": _array_stats(ip_ma),
             "ip_neo_ma": _array_stats(ip_neo_ma),
         }
+        if return_vres:
+            return (
+                zeff,
+                times,
+                np.asarray(vres, dtype=float),
+                np.asarray(tgrid, dtype=float),
+                diagnostics,
+            )
         return zeff, times, diagnostics
 
     # Consistency check:
     doConsistencyCheck(zeff, times)
 
+    if return_vres:
+        return (
+            zeff,
+            times,
+            np.asarray(vres, dtype=float),
+            np.asarray(tgrid, dtype=float),
+        )
     return zeff, times
 
 
@@ -836,9 +862,22 @@ def main():
         save_plots=args.save_plots,
     )
     if args.strict_diagnostics:
-        zeff, times, diagnostics = out
+        if len(out) >= 5:
+            zeff = out[0]
+            times = out[1]
+            diagnostics = out[4]
+        elif len(out) >= 3:
+            zeff = out[0]
+            times = out[1]
+            diagnostics = out[2]
+        else:
+            raise RuntimeError("Unexpected strict_diagnostics output from zeff_neo")
     else:
-        zeff, times = out
+        if len(out) >= 2:
+            zeff = out[0]
+            times = out[1]
+        else:
+            raise RuntimeError("Unexpected output from zeff_neo")
 
     print("times")
     print(times)

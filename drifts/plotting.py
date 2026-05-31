@@ -11,10 +11,10 @@ from .compute import (
     EquilibriumData,
     ProfileData,
 )
-from .impurity_corrections import (
-    impurity_main_ion_delta_f_loop_voltage_hz,
-    impurity_main_ion_delta_f_ti_gradient_hz,
+from .impurity_corrections_loop_voltage import (
+    impurity_main_ion_delta_f_loop_voltage_first_term_hz,
 )
+from .impurity_corrections_ti_gradient import impurity_main_ion_delta_f_ti_gradient_hz
 
 
 def plot_diamagnetic_vs_q_times(
@@ -31,6 +31,7 @@ def plot_diamagnetic_vs_q_times(
     tht: int = 0,
     max_err_omega: float = 10.0,
     impurity_corr1_params: dict[str, float] | None = None,
+    ti_gradient_core_edge_guard_points: int = 1,
     show_plot: bool = True,
 ) -> None:
     """Production summary plot for diamagnetic drift and toroidal rotation."""
@@ -60,6 +61,8 @@ def plot_diamagnetic_vs_q_times(
         and profiles.omega_tor_err_rad_s is not None
         and profiles.psi_hx is not None
     )
+    tor_y_min = np.inf
+    tor_y_max = -np.inf
 
     for i_sel, t_sel in enumerate(selected_times_s):
         it_res = int(np.argmin(np.abs(t_res - t_sel)))
@@ -92,6 +95,7 @@ def plot_diamagnetic_vs_q_times(
         q_col = result.q[:, it_res]
         order_q = np.argsort(q_col)
         q_s = q_col[order_q]
+        valid_q = np.isfinite(q_s)
         fe_khz = result.f_star_e_Hz[:, it_res][order_q] / 1e3
         fi_khz = result.f_star_i_Hz[:, it_res][order_q] / 1e3
         ax_f.plot(
@@ -113,22 +117,30 @@ def plot_diamagnetic_vs_q_times(
 
         fe_tor_khz = result.f_star_e_tor_Hz[:, it_res][order_q] / 1e3
         fi_tor_khz = result.f_star_i_tor_Hz[:, it_res][order_q] / 1e3
+        mask_fe_tor = valid_q & np.isfinite(fe_tor_khz)
+        mask_fi_tor = valid_q & np.isfinite(fi_tor_khz)
         ax_f_tor.plot(
-            q_s,
-            fe_tor_khz,
+            q_s[mask_fe_tor],
+            fe_tor_khz[mask_fe_tor],
             color=color,
             lw=2.0,
             ls="-",
             label=rf"$f_{{*e}}^{{\mathrm{{tor}}}}$ ({time_label})",
         )
         ax_f_tor.plot(
-            q_s,
-            fi_tor_khz,
+            q_s[mask_fi_tor],
+            fi_tor_khz[mask_fi_tor],
             color=color,
             lw=2.0,
             ls="--",
             label=rf"$f_{{*i}}^{{\mathrm{{tor}}}}$ ({time_label})",
         )
+        if np.any(mask_fe_tor):
+            tor_y_min = min(tor_y_min, float(np.nanmin(fe_tor_khz[mask_fe_tor])))
+            tor_y_max = max(tor_y_max, float(np.nanmax(fe_tor_khz[mask_fe_tor])))
+        if np.any(mask_fi_tor):
+            tor_y_min = min(tor_y_min, float(np.nanmin(fi_tor_khz[mask_fi_tor])))
+            tor_y_max = max(tor_y_max, float(np.nanmax(fi_tor_khz[mask_fi_tor])))
 
         r_minor_col = np.asarray(equilibrium.r_minor_q_m[:, it_res], dtype=float)
         r_major_col = np.asarray(equilibrium.r_major_q_m[:, it_res], dtype=float)
@@ -153,45 +165,97 @@ def plot_diamagnetic_vs_q_times(
                 z_imp=16.0,
                 t_imp_eV=ti_col,
                 k2=1.0,
-                use_eq1=True,
+                use_eq1=False,
             )[order_q]
             / 1e3
         )
+        mask_df2 = valid_q & np.isfinite(delta_f2_khz)
+        if ti_gradient_core_edge_guard_points > 0:
+            guard_idx_df2 = np.flatnonzero(mask_df2)
+            if guard_idx_df2.size > ti_gradient_core_edge_guard_points:
+                mask_df2[guard_idx_df2[:ti_gradient_core_edge_guard_points]] = False
         ax_f_tor.plot(
-            q_s,
-            delta_f2_khz,
+            q_s[mask_df2],
+            delta_f2_khz[mask_df2],
             color=color,
             lw=1.8,
             ls=":",
+            alpha=0.9,
+            zorder=4,
             label=rf"$\Delta f_{{I-i}}^{{(\nabla T_i)}}$ ({time_label})",
         )
+        if np.any(mask_df2):
+            tor_y_min = min(tor_y_min, float(np.nanmin(delta_f2_khz[mask_df2])))
+            tor_y_max = max(tor_y_max, float(np.nanmax(delta_f2_khz[mask_df2])))
 
-        if impurity_corr1_params is not None and all(
-            k in impurity_corr1_params
-            for k in ["loop_voltage_V", "z_imp", "mu_imp_amu"]
+        has_vres_traces = impurity_corr1_params is not None and all(
+            k in impurity_corr1_params for k in ["corr_time_s", "vres_v_t"]
+        )
+        has_loop_voltage = (
+            impurity_corr1_params is not None
+            and "loop_voltage_V" in impurity_corr1_params
+        )
+        if (
+            impurity_corr1_params is not None
+            and "z_imp" in impurity_corr1_params
+            and (has_vres_traces or has_loop_voltage)
         ):
+            t_now = float(t_res[it_res])
+            loop_voltage_fallback = float(
+                impurity_corr1_params.get("loop_voltage_V", 1.0)
+            )
+            core_edge_guard_points = max(
+                0,
+                int(impurity_corr1_params.get("core_edge_guard_points", 2)),
+            )
+            impurity_fraction = float(
+                impurity_corr1_params.get(
+                    "impurity_fraction",
+                    impurity_corr1_params.get("dilution_factor", 1e-4),
+                )
+            )
+
+            if has_vres_traces:
+                corr_t = np.asarray(impurity_corr1_params["corr_time_s"], dtype=float)
+                vres_t = np.asarray(impurity_corr1_params["vres_v_t"], dtype=float)
+                vres_now = float(np.interp(t_now, corr_t, vres_t))
+            else:
+                vres_now = loop_voltage_fallback
+
             delta_f1_khz = (
-                impurity_main_ion_delta_f_loop_voltage_hz(
-                    ti_eV=ti_col,
+                impurity_main_ion_delta_f_loop_voltage_first_term_hz(
                     ni_m3=np.asarray(result.ni_m3[:, it_res], dtype=float),
                     r_major_m=r_major_col,
-                    loop_voltage_V=float(impurity_corr1_params["loop_voltage_V"]),
+                    loop_voltage_V=vres_now,
                     z_imp=float(impurity_corr1_params["z_imp"]),
-                    mu_imp_amu=float(impurity_corr1_params["mu_imp_amu"]),
-                    dilution_factor=float(
-                        impurity_corr1_params.get("dilution_factor", 1.0)
-                    ),
+                    impurity_dilution_factor=impurity_fraction,
+                    ti_eV_for_tau=ti_col,
+                    m_main_amu=2.0,
+                    z_main=1.0,
                 )[order_q]
                 / 1e3
             )
+            mask_df1 = valid_q & np.isfinite(delta_f1_khz)
+            if core_edge_guard_points > 0:
+                guard_idx = np.flatnonzero(mask_df1)
+                if guard_idx.size > core_edge_guard_points:
+                    mask_df1[guard_idx[:core_edge_guard_points]] = False
             ax_f_tor.plot(
-                q_s,
-                delta_f1_khz,
+                q_s[mask_df1],
+                delta_f1_khz[mask_df1],
                 color=color,
-                lw=1.8,
+                lw=2.8,
                 ls="-.",
-                label=rf"$\Delta f_{{I-i}}^{{(V_l)}}$ ({time_label})",
+                marker="o",
+                markevery=max(1, max(1, int(np.count_nonzero(mask_df1))) // 12),
+                ms=3.5,
+                alpha=1.0,
+                zorder=6,
+                label=rf"$\Delta f_{{I-i}}^{{(V_l,\,\mathrm{{Eq56-57\ first\ term}})}}$ ({time_label})",
             )
+            if np.any(mask_df1):
+                tor_y_min = min(tor_y_min, float(np.nanmin(delta_f1_khz[mask_df1])))
+                tor_y_max = max(tor_y_max, float(np.nanmax(delta_f1_khz[mask_df1])))
 
         if has_omega:
             psi_hx_arr = profiles.psi_hx
@@ -241,7 +305,14 @@ def plot_diamagnetic_vs_q_times(
     if f_lims_f:
         ax_f.set_ylim(f_lims_f)
     if f_lims_f_tor:
-        ax_f_tor.set_ylim(f_lims_f_tor)
+        y0, y1 = float(f_lims_f_tor[0]), float(f_lims_f_tor[1])
+        if np.isfinite(tor_y_min) and np.isfinite(tor_y_max):
+            if tor_y_min < y0 or tor_y_max > y1:
+                span = max(tor_y_max - tor_y_min, 1.0)
+                pad = 0.05 * span
+                y0 = min(y0, tor_y_min - pad)
+                y1 = max(y1, tor_y_max + pad)
+        ax_f_tor.set_ylim([y0, y1])
     if f_lims_omega:
         ax_omg.set_ylim(f_lims_omega)
 

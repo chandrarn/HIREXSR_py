@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Support direct script execution as well as `python -m HIREXSR_py.drifts...`.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -43,7 +45,10 @@ def parse_args() -> argparse.Namespace:
         help="Y-axis limits for omega_* plot (kHz)",
     )
     parser.add_argument(
-        "--doSave", default="", type=str, help="Save plots to file path"
+        "--doSave",
+        default="/home/rianc/Documents/Synthetic_Mirnov/output_plots/",
+        type=str,
+        help="Save plots to file path",
     )
     parser.add_argument(
         "--tht", type=int, default=0, help="THT branch number for HIREXSR MHD+ Tree"
@@ -81,8 +86,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--corr1-dilution",
         type=float,
-        default=1.0,
-        help="Impurity dilution factor f for correction model 1",
+        default=1e-4,
+        help="Impurity fraction f=n_I/n_i for Kim Eq56-57 first-term correction model",
     )
     parser.add_argument(
         "--headless",
@@ -130,19 +135,24 @@ def main() -> None:
         load_equilibrium_for_shot,
         load_profiles_for_shot,
     )
+    from HIREXSR_py.drifts.impurity_corrections_loop_voltage import (  # type: ignore[reportMissingImports]
+        load_vres_from_zeff_neo,
+    )
     from HIREXSR_py.drifts.plotting import plot_diamagnetic_vs_q_times  # type: ignore[reportMissingImports]
 
-    corr1_params = None
+    corr1_params: dict[str, object] | None = None
     if (
         args.corr1_loop_voltage_v is not None
         and args.corr1_z_imp is not None
         and args.corr1_mu_imp_amu is not None
     ):
+        impurity_fraction = float(args.corr1_dilution)
         corr1_params = {
             "loop_voltage_V": float(args.corr1_loop_voltage_v),
             "z_imp": float(args.corr1_z_imp),
             "mu_imp_amu": float(args.corr1_mu_imp_amu),
-            "dilution_factor": float(args.corr1_dilution),
+            "impurity_fraction": impurity_fraction,
+            "hutchinson_fraction": 1.0 - impurity_fraction,
         }
 
     if args.demo:
@@ -151,6 +161,25 @@ def main() -> None:
     else:
         profiles = load_profiles_for_shot(args.shot, line=args.line, tht=args.tht)
         equilibrium = load_equilibrium_for_shot(args.shot, tree=args.tree)
+
+        if corr1_params is not None:
+            try:
+                t_vres, vres_v = load_vres_from_zeff_neo(
+                    shot=args.shot,
+                    dt=0.1,
+                    trange=(
+                        float(np.nanmin(profiles.time_diag)),
+                        float(np.nanmax(profiles.time_diag)),
+                    ),
+                    verbose=False,
+                )
+                corr1_params["corr_time_s"] = np.asarray(t_vres, dtype=float)
+                corr1_params["vres_v_t"] = np.asarray(vres_v, dtype=float)
+            except Exception as exc:
+                print(
+                    "Warning: failed to load vres from zeff_neo; "
+                    f"falling back to --corr1-loop-voltage-v. Reason: {exc}"
+                )
 
     result = compute_diamagnetic_drift_frequencies(
         profiles=profiles,

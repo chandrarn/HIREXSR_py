@@ -57,9 +57,9 @@ def estimate_n_i(
     # Ensure that the timebases of the YAG data and Zeff data are compatible
     zeff_interpolated = np.interp(yag.time, zeff_times, zeff)
 
-    # Estimate ni using ne and Zeff
-
-    ni_estimate = ne_all / zeff_interpolated  # Simplified estimation
+    # Estimate ni using ne and Zeff with multi-species impurity model
+    # (D, H, and lumped Low/Medium/High-Z impurities)
+    ni_estimate = ne_all * (9.3006 - zeff_interpolated) / 8.4
 
     if doPlot:
         make_plots(

@@ -362,3 +362,227 @@ def plot_diamagnetic_vs_q_times(
         plt.show(block=True)
     else:
         plt.close(fig)
+
+
+def plot_ti_grid_diagnostic(
+    profiles: ProfileData,
+    equilibrium: EquilibriumData,
+    result: DiamagneticResult,
+    selected_times_s: list[float],
+    shot: int | None = None,
+    doSave: str = "",
+    show_plot: bool = True,
+) -> None:
+    """Diagnostic plot comparing the native HIREX-SR Ti grid versus the
+    Ti profile after mapping onto the Thomson diagnostic and q-profile grids.
+
+    Three panels per selected time:
+      Left  – Ti(R_major): HIREX source, mapped-to-Thomson, and mapped-to-q.
+      Centre – dTi/dr(R_major): derivative on each grid.
+      Right  – dTi/dr(q): same derivatives plotted against q, which is what
+               the impurity correction formula sees.
+    """
+    from scipy.interpolate import PchipInterpolator
+    from .compute import _interp_columns_to_grid
+
+    t_res = np.asarray(result.time_s, dtype=float)
+    t_diag = np.asarray(profiles.time_diag, dtype=float).squeeze()
+    cmap = plt.get_cmap("tab10")
+
+    fig, axes = plt.subplots(
+        len(selected_times_s),
+        3,
+        figsize=(15, 4 * len(selected_times_s)),
+        num=(
+            f"Ti Grid Diagnostic: shot {shot}"
+            if shot is not None
+            else "Ti Grid Diagnostic"
+        ),
+        squeeze=False,
+    )
+
+    for row, t_sel in enumerate(selected_times_s):
+        it_res = int(np.argmin(np.abs(t_res - t_sel)))
+        it_diag = int(np.argmin(np.abs(t_diag - t_sel)))
+        t_actual = float(t_res[it_res])
+        color = cmap(row % 10)
+
+        ax_ti = axes[row, 0]
+        ax_dti = axes[row, 1]
+        ax_dti_q = axes[row, 2]
+
+        # --- Source HIREX grid (native sparse grid) ---
+        rho_src = np.asarray(profiles.rho_hx[:, it_diag], dtype=float)
+        ti_src_raw = np.asarray(profiles.ti_eV[:, it_diag], dtype=float)
+        valid_hx = np.isfinite(rho_src) & np.isfinite(ti_src_raw) & (ti_src_raw > 0)
+        rho_s = rho_src[valid_hx]
+        ti_s = ti_src_raw[valid_hx]
+        ord_s = np.argsort(rho_s)
+        rho_s = rho_s[ord_s]
+        ti_s = ti_s[ord_s]
+        keep = np.concatenate(([True], np.diff(rho_s) > 1e-8))
+        rho_s = rho_s[keep]
+        ti_s = ti_s[keep]
+
+        dti_s = np.gradient(ti_s, rho_s, edge_order=2)
+
+        # --- Mapped-to-Thomson-diagnostic grid (dense, ~17→ Thomson n-channels) ---
+        r_diag_col = np.asarray(profiles.r_major_diag_m[:, it_diag], dtype=float)
+        ti_mapped_lin = _interp_columns_to_grid(
+            profiles.ti_eV[:, it_diag : it_diag + 1],
+            profiles.rho_hx[:, it_diag : it_diag + 1],
+            r_diag_col[:, np.newaxis],
+            method="linear",
+        )[:, 0]
+        ti_mapped_pch = _interp_columns_to_grid(
+            profiles.ti_eV[:, it_diag : it_diag + 1],
+            profiles.rho_hx[:, it_diag : it_diag + 1],
+            r_diag_col[:, np.newaxis],
+            method="pchip",
+        )[:, 0]
+
+        r_diag_sorted_idx = np.argsort(r_diag_col)
+        r_diag_s = r_diag_col[r_diag_sorted_idx]
+        ti_lin_s = ti_mapped_lin[r_diag_sorted_idx]
+        ti_pch_s = ti_mapped_pch[r_diag_sorted_idx]
+        dti_lin_diag = np.gradient(ti_lin_s, r_diag_s, edge_order=2)
+        dti_pch_diag = np.gradient(ti_pch_s, r_diag_s, edge_order=2)
+
+        # --- Mapped-to-q grid ---
+        r_q_col = np.asarray(equilibrium.r_major_q_m[:, it_res], dtype=float)
+        ti_q_col = np.asarray(result.ti_eV[:, it_res], dtype=float)
+        r_minor_col = np.asarray(equilibrium.r_minor_q_m[:, it_res], dtype=float)
+        q_col = np.asarray(result.q[:, it_res], dtype=float)
+
+        ord_rq = np.argsort(r_q_col)
+        r_q_s = r_q_col[ord_rq]
+        ti_q_s = ti_q_col[ord_rq]
+        r_minor_q_s = r_minor_col[ord_rq]
+        q_s_rq = q_col[ord_rq]
+        dti_q = np.gradient(ti_q_s, r_minor_q_s, edge_order=2)
+
+        # --- Plot: Ti vs R_major ---
+        ax_ti.plot(rho_s, ti_s * 1e-3, "o", color=color, ms=6, label="HIREX source")
+        if rho_s.size >= 3:
+            r_dense = np.linspace(rho_s[0], rho_s[-1], 300)
+            ax_ti.plot(
+                r_dense,
+                PchipInterpolator(rho_s, ti_s)(r_dense) * 1e-3,
+                color=color,
+                lw=1.4,
+                ls="--",
+                alpha=0.6,
+                label="PCHIP fit (dense)",
+            )
+        ax_ti.plot(
+            r_diag_s,
+            ti_lin_s * 1e-3,
+            "^",
+            color="steelblue",
+            ms=4,
+            alpha=0.7,
+            label="mapped→Thomson (linear)",
+        )
+        ax_ti.plot(
+            r_diag_s,
+            ti_pch_s * 1e-3,
+            "s",
+            color="tomato",
+            ms=4,
+            alpha=0.7,
+            label="mapped→Thomson (pchip)",
+        )
+        ax_ti.plot(
+            r_q_s,
+            ti_q_s * 1e-3,
+            "-",
+            color="gray",
+            lw=1.2,
+            alpha=0.5,
+            label="mapped→q-grid",
+        )
+        ax_ti.set_title(
+            rf"$T_i$ vs $R_\mathrm{{maj}}$ — $t={t_actual:.2f}\,\mathrm{{s}}$"
+        )
+        ax_ti.set_xlabel(r"$R_\mathrm{major}$ [m]")
+        ax_ti.set_ylabel(r"$T_i$ [keV]")
+        ax_ti.legend(fontsize=8)
+        ax_ti.grid(alpha=0.3)
+
+        # --- Plot: dTi/dr vs R_major ---
+        ax_dti.plot(
+            rho_s, dti_s * 1e-3, "o", color=color, ms=6, label="HIREX source (FD)"
+        )
+        ax_dti.plot(
+            r_diag_s,
+            dti_lin_diag * 1e-3,
+            "^",
+            color="steelblue",
+            ms=4,
+            alpha=0.7,
+            label=r"$d T_i/dr$ Thomson (linear)",
+        )
+        ax_dti.plot(
+            r_diag_s,
+            dti_pch_diag * 1e-3,
+            "s",
+            color="tomato",
+            ms=4,
+            alpha=0.7,
+            label=r"$d T_i/dr$ Thomson (pchip)",
+        )
+        ax_dti.plot(
+            r_q_s[np.isfinite(q_s_rq)],
+            dti_q[np.isfinite(q_s_rq)] * 1e-3,
+            "-",
+            color="gray",
+            lw=1.2,
+            alpha=0.5,
+            label=r"$d T_i/dr$ q-grid",
+        )
+        ax_dti.set_title(
+            rf"$dT_i/dr$ vs $R_\mathrm{{maj}}$ — $t={t_actual:.2f}\,\mathrm{{s}}$"
+        )
+        ax_dti.set_xlabel(r"$R_\mathrm{major}$ [m]")
+        ax_dti.set_ylabel(r"$dT_i/dr$ [keV/m]")
+        ax_dti.legend(fontsize=8)
+        ax_dti.grid(alpha=0.3)
+        ax_dti.axhline(0.0, color="k", ls=":", lw=0.8)
+
+        # --- Plot: dTi/dr vs q (what correction formula sees) ---
+        ord_q = np.argsort(q_col)
+        q_sorted = q_col[ord_q]
+        ti_q_ord = ti_q_col[ord_q]
+        r_minor_ord = r_minor_col[ord_q]
+        valid_q = np.isfinite(q_sorted)
+        dti_vs_q = np.gradient(ti_q_ord[valid_q], r_minor_ord[valid_q], edge_order=2)
+        ax_dti_q.plot(
+            q_sorted[valid_q],
+            dti_vs_q * 1e-3,
+            "-",
+            color=color,
+            lw=1.8,
+            label="q-grid (pchip Ti mapped)",
+        )
+        ax_dti_q.set_title(rf"$dT_i/dr$ vs $q$ — $t={t_actual:.2f}\,\mathrm{{s}}$")
+        ax_dti_q.set_xlabel(r"$q(\psi_N,\,t)$")
+        ax_dti_q.set_ylabel(r"$dT_i/dr$ [keV/m]")
+        ax_dti_q.legend(fontsize=8)
+        ax_dti_q.grid(alpha=0.3)
+        ax_dti_q.axhline(0.0, color="k", ls=":", lw=0.8)
+
+    fig.tight_layout()
+
+    if doSave:
+        save_path = doSave + (
+            f"ti_grid_diagnostic_shot_{shot}.pdf"
+            if shot is not None
+            else "ti_grid_diagnostic.pdf"
+        )
+        fig.savefig(save_path, transparent=True)
+        print(f"Saved Ti diagnostic to {save_path}")
+
+    if show_plot:
+        plt.show(block=True)
+    else:
+        plt.close(fig)

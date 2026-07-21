@@ -9,7 +9,8 @@ Assumptions implemented:
 - psi_n and q are 2D in time as well: [nspace, nt] (or [nq, nt] for q grid)
 - Flux-surface circumference is approximated as circular with C = 2*pi*r_minor.
 
-The ion density is computed as ni = ne / Zeff(t).
+The ion density ni is solved from quasineutrality and Zeff using a multispecies
+impurity model (D, H, and lumped Low/Medium/High-Z impurities).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import numpy as np
 
 # Thomson scattering and MDS helpers copied locally for drifts module
 from .cmod_helpers import YAG
+from .radial_grid import merge_nearby_channels_by_mean_radius, sort_columns_by_x
 
 # HIREXSR package functionality used by drifts workflow
 from ..hirexsr_get_profile_py import hirexsr_get_profile_py as _hxsr
@@ -95,6 +97,7 @@ class DiamagneticResult:
     f_star_i_tor_Hz: np.ndarray  # [nspace, nt]
     omega_star_e_tor_rad_s: np.ndarray
     omega_star_i_tor_rad_s: np.ndarray
+    nz_low_m3: np.ndarray  # [nspace, nt]  low-Z lumped impurity density
 
 
 def do_equilibrium_dimensionality_check(
@@ -490,6 +493,7 @@ def load_profiles_for_shot(
     smooth_span_fraction: float = 0.45,
     smooth_poly_order: int = 2,
     smooth_robust_iters: int = 2,
+    merge_channel_min_dr_m: float = 1e-3,
     line: int = 2,
     tht: int = 0,
 ) -> ProfileData:
@@ -565,6 +569,15 @@ def load_profiles_for_shot(
     te_all = te_all[order, :]
     ne_all = ne_all[order, :]
     r_all = r_all[order, :]
+
+    # Merge near-overlapping radial channels (typically core/edge overlap) to
+    # avoid artificial local pressure-gradient jumps.
+    r_all, te_all, ne_all = merge_nearby_channels_by_mean_radius(
+        r_all,
+        te_all,
+        ne_all,
+        min_dr_m=merge_channel_min_dr_m,
+    )
 
     te_all, ne_all = _clean_low_te_ne_profiles(
         te_all,
@@ -831,17 +844,79 @@ def _interp_space_time_in_time(
     return out
 
 
-def _interp_1d_sorted(x_new: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    order = np.argsort(x)
-    xs = x[order]
-    ys = y[order]
-    return np.interp(x_new, xs, ys)
+def _collapse_sorted_duplicates(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    min_dx: float = 2e-4,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Collapse near-duplicate sorted x-values into averaged x/y samples."""
+    if xs.size == 0:
+        return xs, ys
+
+    group_start = np.concatenate(([True], np.diff(xs) > max(float(min_dx), 1e-12)))
+    group_id = np.cumsum(group_start) - 1
+    counts = np.bincount(group_id)
+    xs_u = np.bincount(group_id, weights=xs) / np.maximum(counts, 1)
+    ys_u = np.bincount(group_id, weights=ys) / np.maximum(counts, 1)
+    return xs_u, ys_u
+
+
+def _interp_1d_sorted(
+    x_new: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    dedup_tol_m: float = 1e-8,
+    method: str = "linear",
+) -> np.ndarray:
+    x_new_a = np.asarray(x_new, dtype=float)
+    x_a = np.asarray(x, dtype=float)
+    y_a = np.asarray(y, dtype=float)
+
+    out = np.full_like(x_new_a, np.nan, dtype=float)
+    new_valid = np.isfinite(x_new_a)
+    src_valid = np.isfinite(x_a) & np.isfinite(y_a)
+
+    if not np.any(new_valid) or np.count_nonzero(src_valid) == 0:
+        return out
+
+    xs = x_a[src_valid]
+    ys = y_a[src_valid]
+    order = np.argsort(xs)
+    xs = xs[order]
+    ys = ys[order]
+    xs, ys = _collapse_sorted_duplicates(xs, ys, min_dx=dedup_tol_m)
+
+    if xs.size == 1:
+        out[new_valid] = ys[0]
+        return out
+
+    method_l = method.lower()
+    if method_l == "pchip":
+        if xs.size >= 3:
+            from scipy.interpolate import PchipInterpolator
+
+            xq = x_new_a[new_valid]
+            vals = PchipInterpolator(xs, ys, extrapolate=False)(xq)
+            # Out-of-range points return NaN; clamp them to boundary values
+            oor = ~np.isfinite(vals)
+            if np.any(oor):
+                vals[oor] = np.interp(xq[oor], xs, ys)
+            out[new_valid] = vals
+            return out
+        method_l = "linear"
+
+    if method_l != "linear":
+        raise ValueError(f"Unsupported interpolation method '{method}'.")
+
+    out[new_valid] = np.interp(x_new_a[new_valid], xs, ys)
+    return out
 
 
 def _interp_columns_to_grid(
     y_src: np.ndarray,
     x_src: np.ndarray,
     x_dst: np.ndarray,
+    method: str = "linear",
 ) -> np.ndarray:
     """Interpolate each time column of y(x,t) onto x_dst(:,t)."""
     if y_src.shape != x_src.shape:
@@ -855,28 +930,31 @@ def _interp_columns_to_grid(
 
     out = np.empty_like(x_dst, dtype=float)
     for it in range(x_dst.shape[1]):
-        out[:, it] = _interp_1d_sorted(x_dst[:, it], x_src[:, it], y_src[:, it])
+        out[:, it] = _interp_1d_sorted(
+            x_dst[:, it],
+            x_src[:, it],
+            y_src[:, it],
+            method=method,
+        )
     return out
 
 
-def _map_ti_psi_to_diagnostic_radius_grid(
+def _map_ti_psi_to_diagnostic_flux_grid(
     ti_eV_t: np.ndarray,
-    rho_hx_t: np.ndarray,
     psi_hx_t: np.ndarray,
-    psi_n_q_t: np.ndarray,
-    r_major_q_t: np.ndarray,
-    r_major_diag_t: np.ndarray,
+    psi_diag_t: np.ndarray,
 ) -> np.ndarray:
-    """Map Ti from HIREXSR psi grid to diagnostic radial grid via equilibrium grids.
+    """Map Ti from HIREXSR flux grid onto the diagnostic-grid flux coordinate.
 
-    Mapping chain (all at the same timebase):
-      1) (psi_hx_t -> psi_n_q_t)
-      2) (r_major_q_t -> r_major_diag_t)
+    Inputs are all shape [nspace, nt] and time-aligned. This keeps the mapping
+    in flux-space (psi_N) rather than introducing an extra major-radius remap.
     """
-    # ti_q_eV = _interp_columns_to_grid(ti_eV_t, psi_hx_t, psi_n_q_t)
-    # interp_out = _interp_columns_to_grid(ti_q_eV, r_major_q_t, r_major_diag_t)
-    ti_q_eV = _interp_columns_to_grid(ti_eV_t, rho_hx_t, r_major_diag_t)
-    return ti_q_eV
+    return _interp_columns_to_grid(
+        ti_eV_t,
+        psi_hx_t,
+        psi_diag_t,
+        method="linear",
+    )
 
 
 def _gradient_axis0_nonuniform(y: np.ndarray, x: np.ndarray) -> np.ndarray:
@@ -905,12 +983,16 @@ def _gradient_axis0_nonuniform_polyfit(
     x: np.ndarray,
     fit_points: int = 5,
     poly_order: int = 3,
+    min_dx_for_fit_m: float = 8e-4,
 ) -> np.ndarray:
     """Higher-order first derivative via local polynomial fits along axis 0.
 
     For each radial point and time slice, fit a local polynomial y(x) and
     evaluate dy/dx at the target point. This is typically less noisy than
     low-order finite differences on sparse grids.
+
+    Points within min_dx_for_fit_m in x are merged for the local fit to avoid
+    spuriously large derivatives from nearly coincident radial coordinates.
     """
     if y.shape != x.shape:
         raise ValueError(f"Gradient shape mismatch: {y.shape} vs {x.shape}.")
@@ -943,7 +1025,8 @@ def _gradient_axis0_nonuniform_polyfit(
             xs = xw[order]
             ys = yw[order]
 
-            uniq = np.concatenate(([True], np.diff(xs) > 1e-12))
+            dx_min = max(float(min_dx_for_fit_m), 1e-12)
+            uniq = np.concatenate(([True], np.diff(xs) > dx_min))
             xs = xs[uniq]
             ys = ys[uniq]
 
@@ -1062,6 +1145,40 @@ def _smooth_profiles_for_gradients_axis0(
             )[:, 0]
 
     return out
+
+
+def _solve_ni_multi_species(
+    ne: np.ndarray, zeff: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Solve for main-ion (Deuterium) density n_D and low-Z impurity density n_L
+    using quasineutrality and Zeff.
+
+    Assumptions:
+        - Quasineutrality: sum(Z_j * n_j) - n_e = 0
+        - Zeff = sum(Z_j^2 * n_j) / n_e
+        - Species:
+            D: Z=1 (Unknown n_D)
+            H: Z=1, n_H/n_D = 0.05
+            L: Z=9 (Unknown n_L)
+            M: Z=18, n_M/n_e = 1e-3
+            W: Z=42, n_W/n_e = 1e-4
+
+    The solution reduces to:
+        n_D = n_e * (9.3006 - Zeff) / 8.4
+        n_L = n_e * (Zeff - 1.4782) / 72.0
+    """
+    # zeff is typically [nt], ne is [nspace, nt].
+    zeff_2d = np.asarray(zeff)
+    if zeff_2d.ndim == 1 and ne.ndim == 2:
+        zeff_2d = zeff_2d[np.newaxis, :]
+
+    # Formulae derived from the system of equations.
+    ni = ne * (9.3006 - zeff_2d) / 8.4
+    nz_low = ne * (zeff_2d - 1.4782) / 72.0
+
+    # Floor at 0 to avoid unphysical negative densities.
+    return np.maximum(ni, 0.0), np.maximum(nz_low, 0.0)
 
 
 def _safe_log_gradient_sorted(
@@ -1355,10 +1472,11 @@ def compute_diamagnetic_drift_frequencies(
     smooth_profiles_before_pressure: bool = False,
     profile_smoothing_passes: int = 2,
     profile_smoothing_method: str = "spline",
-    pressure_smoothing_passes: int = 2,
+    pressure_smoothing_passes: int = 0,
     pressure_gradient_method: str = "polyfit",
     pressure_gradient_fit_points: int = 5,
     pressure_gradient_poly_order: int = 3,
+    pressure_gradient_min_dx_m: float = 8e-4,
 ) -> DiamagneticResult:
     """
     Compute diamagnetic drift frequencies from pressure-gradient drift velocity
@@ -1368,9 +1486,29 @@ def compute_diamagnetic_drift_frequencies(
         f_*s = v_*s / C(psi, t)
         omega_*s = 2*pi*f_*s
 
-    Electron density and temperature are interpolated from the diagnostic major-radius
-    grid onto the equilibrium major-radius grid. Ion temperature is interpolated from
-    the HIREXSR psi grid onto the same equilibrium psi grid.
+        Grid mapping overview (all arrays are first time-interpolated onto equilibrium time):
+            1) Thomson ne/Te: R_diag -> R_q.
+            2) HIREX Ti: psi_hx -> psi_q (this defines Ti(q) used in physics outputs).
+            3) HIREX Ti for diagnostic-grid pressure gradients: psi_hx -> psi_diag,
+                 where psi_diag is psi_q mapped onto R_diag.
+
+        Mapping diagram (single time slice t_k):
+
+            Thomson branch:
+                ne, Te on R_diag(t_k)  --interp-->  ne, Te on R_q(t_k)
+
+            HIREX Ti branch (primary physics path):
+                Ti on psi_hx(t_k)      --interp-->  Ti on psi_q(t_k)  == Ti(q, t_k)
+
+            HIREX Ti branch (diagnostic-gradient path):
+                psi_q(t_k) mapped to R_diag(t_k) -> psi_diag(t_k)
+                Ti on psi_hx(t_k)      --interp-->  Ti on psi_diag(t_k)
+
+            Where:
+                R_diag = Thomson major-radius channel grid
+                R_q    = equilibrium major radius sampled on q/psi grid
+                psi_hx = native HIREX normalized-flux grid
+                psi_q  = equilibrium normalized-flux grid
     """
     t_diag = np.asarray(profiles.time_diag, dtype=float).squeeze()
     nt_diag = t_diag.size
@@ -1421,12 +1559,7 @@ def compute_diamagnetic_drift_frequencies(
     r_major_diag_t = _interp_space_time_in_time(r_major_diag_m, t_diag, t)
     ne_m3_t = _interp_space_time_in_time(ne_m3, t_diag, t)
     te_eV_t = _interp_space_time_in_time(te_eV, t_diag, t)
-    ti_eV_t = _interp_space_time_in_time(ti_eV, t_diag, t)
-    rho_ti_t = (
-        _interp_space_time_in_time(np.asarray(profiles.rho_hx, dtype=float), t_diag, t)
-        if profiles.rho_hx is not None
-        else None
-    )
+    ti_src_eV_t = _interp_space_time_in_time(ti_eV, t_diag, t)
     psi_hx_t = (
         _interp_space_time_in_time(psi_hx, t_diag, t)
         if psi_hx is not None
@@ -1446,23 +1579,38 @@ def compute_diamagnetic_drift_frequencies(
     ne_q = _interp_columns_to_grid(ne_m3_t, r_major_diag_t, r_major_q_t)
     te_q_eV = _interp_columns_to_grid(te_eV_t, r_major_diag_t, r_major_q_t)
     psi_diag_mapped = _interp_columns_to_grid(psi_n_q_t, r_major_q_t, r_major_diag_t)
+
     if has_hx_grid:
-        ti_q_eV = _interp_columns_to_grid(ti_eV_t, psi_hx_t, psi_n_q_t)
-        if rho_ti_t is None:
-            rho_ti_t = psi_hx_t
-        ti_diag_eV_t = _map_ti_psi_to_diagnostic_radius_grid(
-            ti_eV_t=ti_eV_t,
-            rho_hx_t=rho_ti_t,
-            psi_hx_t=psi_hx_t,
-            psi_n_q_t=psi_n_q_t,
-            r_major_q_t=r_major_q_t,
-            r_major_diag_t=r_major_diag_t,
+        # Stage A: Native HIREX Ti(psi_hx, t) -> Ti(psi_q, t). This is the
+        # primary physics mapping used for Ti(q), ni(q), and correction terms.
+        ti_q_eV = _interp_columns_to_grid(
+            ti_src_eV_t,
+            psi_hx_t,
+            psi_n_q_t,
+            method="linear",
         )
+
+        # Stage B: Build diagnostic-grid Ti for pressure/gradient operations by
+        # mapping onto the diagnostic flux coordinate psi_diag(R_diag, t).
+        ti_diag_eV_t = _map_ti_psi_to_diagnostic_flux_grid(
+            ti_eV_t=ti_src_eV_t,
+            psi_hx_t=psi_hx_t,
+            psi_diag_t=psi_diag_mapped,
+        )
+
+        # Keep native HIREX plotting coordinate in flux space for diagnostics.
+        rho_ti_t = psi_hx_t
+        ti_plot_eV_t = ti_src_eV_t
     else:
-        ti_q_eV = _interp_columns_to_grid(ti_eV_t, r_major_diag_t, r_major_q_t)
-        ti_diag_eV_t = ti_eV_t
-        if rho_ti_t is None:
-            rho_ti_t = psi_diag_mapped
+        ti_diag_eV_t = ti_src_eV_t
+        ti_q_eV = _interp_columns_to_grid(
+            ti_diag_eV_t,
+            r_major_diag_t,
+            r_major_q_t,
+            method="pchip",
+        )
+        rho_ti_t = r_major_diag_t
+        ti_plot_eV_t = ti_diag_eV_t
 
     ne_q_raw = ne_q
     te_q_eV_raw = te_q_eV
@@ -1489,10 +1637,12 @@ def compute_diamagnetic_drift_frequencies(
         te_q_eV = np.array(te_q_eV_raw, dtype=float, copy=True)
         ti_q_eV = np.array(ti_q_eV_raw, dtype=float, copy=True)
 
-    ni_q = ne_q / np.maximum(zeff_t[np.newaxis, :], 1e-8)
+    # Use the multi-species impurity model to solve for ni.
+    ni_q, nz_low_q = _solve_ni_multi_species(ne_q, zeff_t)
 
     # Build diagnostic-grid quantities for plotting and gradient computation.
-    ni_diag_t = ne_m3_t / np.maximum(zeff_t[np.newaxis, :], 1e-8)
+    ni_diag_t, _ = _solve_ni_multi_species(ne_m3_t, zeff_t)
+
     ne_diag_sm = (
         _smooth_profiles_for_gradients_axis0(
             ne_m3_t,
@@ -1520,39 +1670,59 @@ def compute_diamagnetic_drift_frequencies(
         if smooth_profiles_before_pressure
         else np.array(ti_diag_eV_t, dtype=float, copy=True)
     )
-    ni_diag_sm = ne_diag_sm / np.maximum(zeff_t[np.newaxis, :], 1e-8)
+    ni_diag_sm, _ = _solve_ni_multi_species(ne_diag_sm, zeff_t)
 
     pe_diag_pa = ne_m3_t * (te_eV_t * E_CHARGE)
     pi_diag_pa = ni_diag_t * (ti_diag_eV_t * E_CHARGE)
-    pe_diag_pa_sm = ne_diag_sm * (te_diag_sm * E_CHARGE)
-    pi_diag_pa_sm = ni_diag_sm * (ti_diag_sm * E_CHARGE)
+
+    if pressure_smoothing_passes > 0:
+        pe_diag_pa_sm = _smooth_profiles_for_gradients_axis0(
+            pe_diag_pa,
+            passes=pressure_smoothing_passes,
+            method=profile_smoothing_method,
+        )
+        pi_diag_pa_sm = _smooth_profiles_for_gradients_axis0(
+            pi_diag_pa,
+            passes=pressure_smoothing_passes,
+            method=profile_smoothing_method,
+        )
+    else:
+        pe_diag_pa_sm = np.array(pe_diag_pa, dtype=float, copy=True)
+        pi_diag_pa_sm = np.array(pi_diag_pa, dtype=float, copy=True)
 
     q_e = -E_CHARGE
     q_i = ion_charge_state * E_CHARGE
     grad_method = pressure_gradient_method.lower()
 
-    # Compute dp/dR on the diagnostic major-radius grid where profiles are naturally
-    # spaced and well-conditioned. Since r_minor = R_major - R_0 (circular approximation),
-    # dp/dr_minor = dp/dR_major exactly. The resulting gradient is then interpolated onto
-    # the equilibrium q-grid, avoiding compression artefacts near the magnetic axis.
-    # Use base (load-cleaned) pressure traces for gradients; extra-sm traces are for
-    # diagnostic comparison only.
+    # Compute dp/dR on a per-time sorted diagnostic major-radius grid.
+    # This avoids local-index artefacts when channel ordering is not strictly monotonic
+    # in R at a given time slice.
+    r_grad_t, pe_grad_src, pi_grad_src = sort_columns_by_x(
+        r_major_diag_t,
+        pe_diag_pa_sm,
+        pi_diag_pa_sm,
+    )
+
+    # Since r_minor = R_major - R_0 (circular approximation), dp/dr_minor = dp/dR_major.
+    # Interpolate the resulting gradient to the equilibrium q-grid afterward.
     if grad_method == "polyfit":
         dpe_dR_diag = _gradient_axis0_nonuniform_polyfit(
-            pe_diag_pa,
-            r_major_diag_t,
+            pe_grad_src,
+            r_grad_t,
             fit_points=pressure_gradient_fit_points,
             poly_order=pressure_gradient_poly_order,
+            min_dx_for_fit_m=pressure_gradient_min_dx_m,
         )
         dpi_dR_diag = _gradient_axis0_nonuniform_polyfit(
-            pi_diag_pa,
-            r_major_diag_t,
+            pi_grad_src,
+            r_grad_t,
             fit_points=pressure_gradient_fit_points,
             poly_order=pressure_gradient_poly_order,
+            min_dx_for_fit_m=pressure_gradient_min_dx_m,
         )
     elif grad_method == "finite-diff":
-        dpe_dR_diag = _gradient_axis0_nonuniform(pe_diag_pa, r_major_diag_t)
-        dpi_dR_diag = _gradient_axis0_nonuniform(pi_diag_pa, r_major_diag_t)
+        dpe_dR_diag = _gradient_axis0_nonuniform(pe_grad_src, r_grad_t)
+        dpi_dR_diag = _gradient_axis0_nonuniform(pi_grad_src, r_grad_t)
     else:
         raise ValueError(
             f"Unsupported pressure_gradient_method '{pressure_gradient_method}'. "
@@ -1560,8 +1730,8 @@ def compute_diamagnetic_drift_frequencies(
         )
 
     # Interpolate dp/dR from the diagnostic grid onto the equilibrium q-grid.
-    dpe_dr = _interp_columns_to_grid(dpe_dR_diag, r_major_diag_t, r_major_q_t)
-    dpi_dr = _interp_columns_to_grid(dpi_dR_diag, r_major_diag_t, r_major_q_t)
+    dpe_dr = _interp_columns_to_grid(dpe_dR_diag, r_grad_t, r_major_q_t)
+    dpi_dr = _interp_columns_to_grid(dpi_dR_diag, r_grad_t, r_major_q_t)
 
     # Use v_* = (1/(q n B^2)) (grad p x B), resolved into component magnitudes.
     # For radial grad p and B = B_t e_tor + B_p e_pol:
@@ -1600,6 +1770,7 @@ def compute_diamagnetic_drift_frequencies(
     f_star_i_tor = np.where(q_valid, f_star_i_tor, np.nan)
     omega_star_e_tor = np.where(q_valid, omega_star_e_tor, np.nan)
     omega_star_i_tor = np.where(q_valid, omega_star_i_tor, np.nan)
+    nz_low_masked = np.where(q_valid, nz_low_q, np.nan)
 
     if do_diagnostic_plot and selected_times_s is not None:
         _plot_compute_grid_diagnostics(
@@ -1620,7 +1791,7 @@ def compute_diamagnetic_drift_frequencies(
             ni_diag_m3_smoothed=ni_diag_sm,
             te_diag_eV=te_eV_t,
             te_diag_eV_smoothed=te_diag_sm,
-            ti_ev_t=ti_eV_t,
+            ti_ev_t=ti_plot_eV_t,
             rho_ti_t=rho_ti_t,
             ti_diag_eV=ti_diag_eV_t,
             ti_diag_eV_smoothed=ti_diag_sm,
@@ -1648,6 +1819,7 @@ def compute_diamagnetic_drift_frequencies(
         f_star_i_tor_Hz=f_star_i_tor,
         omega_star_e_tor_rad_s=omega_star_e_tor,
         omega_star_i_tor_rad_s=omega_star_i_tor,
+        nz_low_m3=nz_low_masked,
     )
 
 
